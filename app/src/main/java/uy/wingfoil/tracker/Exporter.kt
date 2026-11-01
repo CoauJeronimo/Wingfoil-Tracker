@@ -44,7 +44,7 @@ object Exporter {
         val uri = res.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
         res.openOutputStream(uri)?.use { os ->
             ZipOutputStream(os).use { z ->
-                for (fn in listOf("Location.csv", "Metadata.csv")) {
+                for (fn in listOf("Location.csv", "Metadata.csv", "TotalAcceleration.csv")) {
                     val f = File(dir, fn)
                     if (f.exists()) {
                         z.putNextEntry(ZipEntry(fn))

@@ -79,6 +79,7 @@ object Analysis {
                 val target = when (base) {
                     "location.csv" -> "Location.csv"
                     "metadata.csv" -> "Metadata.csv"
+                    "totalacceleration.csv" -> "TotalAcceleration.csv"
                     else -> null
                 }
                 if (!e.isDirectory && target != null) {

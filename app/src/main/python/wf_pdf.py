@@ -182,6 +182,10 @@ def _marker(p, x, y, tipo, res, r=3.6):
     if tipo == 'Trasluchada': p.circle(x, y, r, fill=col, stroke='#FFFFFF', lw=0.6)
     else: p.polygon([(x, y-r*1.25), (x+r*1.15, y), (x, y+r*1.25), (x-r*1.15, y)], fill=col, stroke='#FFFFFF', lw=0.6)
 
+SALTO_COL = '#00E5FF'
+def _salto_mk(p, x, y, r=4.2):
+    p.polygon([(x, y - r*1.3), (x + r*1.15, y + r*0.75), (x - r*1.15, y + r*0.75)], fill=SALTO_COL, stroke='#0B2545', lw=0.7)
+
 def _star(p, x, y, r, col):
     pts = []
     for i in range(10):
@@ -287,10 +291,20 @@ def mapa(p, R, x, y, w, h, sat=True, fetch=None, rango=None, numeros=False):
     pos = []
     for m in mans:
         px, py = P(m['lat'], m['lon']); pos.append((m, px, py)); _marker(p, px, py, m['tipo'], m['resultado'], r_)
+    sal = [e for e in R.get('saltos', []) if dentro(e['cd'])]
+    spos = []
+    for e in sal:
+        px, py = P(e['lat'], e['lon']); spos.append((e, px, py)); _salto_mk(p, px, py, 5 if numeros else 4.2)
     if dentro(R['vmax20_cd']):
         px, py = P(R['vmax20_lat'], R['vmax20_lon']); _star(p, px, py, 7 if numeros else 6.5, '#B44CFF')
     if numeros:
-        taken = [(px - r_, py - r_, 2*r_, 2*r_) for _, px, py in pos]
+        taken = [(px - r_, py - r_, 2*r_, 2*r_) for _, px, py in pos] + [(px - 5, py - 6, 10, 11) for _, px, py in spos]
+        for e, px, py in spos:
+            t_ = 'S' + e['nombre'].split('#')[1] + f" {e['altura']:.1f} m".replace('.', ','); fs = 7.5; tw = text_width(t_, fs, True) + 4; th = 9
+            bx, by = _label_place(px, py, tw, th, taken, 5)
+            taken.append((bx, by, tw, th))
+            p.rect(bx, by, tw, th, fill=SALTO_COL, stroke='#0B2545', lw=0.6)
+            p.text(bx + tw/2, by + 7, t_, fs, True, '#0B2545', 'center')
         for m, px, py in pos:
             t_ = str(m['n']); fs = 7.5; tw = text_width(t_, fs, True) + 4; th = 9
             bx, by = _label_place(px, py, tw, th, taken, r_)
@@ -318,13 +332,15 @@ def mapa(p, R, x, y, w, h, sat=True, fetch=None, rango=None, numeros=False):
     p.clip_end()
     return con_sat
 
-def _leyenda(p, y, completa=True):
+def _leyenda(p, y, completa=True, saltos=False):
     lx = M
     if completa:
         p.text(lx, y, "Velocidad:", 7.5, True, NAVY); lx += 44
         for col, l in SPD:
             p.rect(lx, y - 6, 14, 5, fill=col, stroke='#8899AA', lw=0.4); p.text(lx + 18, y, l, 7.5, False, GRIS)
             lx += 22 + text_width(l, 7.5) + 10
+        if saltos:
+            lx += 14; _salto_mk(p, lx + 4, y - 3, 3.8); p.text(lx + 12, y, "Salto (altura estimada)", 7.5, False, GRIS)
         y += 14; lx = M
     p.text(lx, y, "Maniobras:", 7.5, True, NAVY); lx += 44
     for (ty, rs), lab in ((('Trasluchada', 'Completa'), 'Trasluchada completa'), (('Trasluchada', 'Fallida'), 'Trasluchada fallida'),
@@ -352,19 +368,26 @@ def informe(R, path, sat=True, fetch=None):
              ("Planeo (>7 kn)", _pct(R['planeo_pct']), _n(R['planeo_min'], 1, ' min')),
              ("Vel. media en planeo", _n(R['vel_media_planeo'], 2, ' kn'), ''),
              ("Vel. máx. en 20 m", _n(R['vmax20'], 2, ' kn'), R['vmax20_hora']),
-             ("Trasluchadas", f"{T['completas']} / {T['fallidas']}", f"completas / fallidas · éxito {_pct(T['exito'])}"),
-             ("Viradas", f"{V['completas']} / {V['fallidas']}", f"completas / fallidas · éxito {_pct(V['exito'])}"),
+             ("Trasluchadas", f"{T['completas']} / {T['fallidas']}", f"compl./fall. · éxito {_pct(T['exito'])}"),
+             ("Viradas", f"{V['completas']} / {V['fallidas']}", f"compl./fall. · éxito {_pct(V['exito'])}"),
              ("Cortes de señal", str(R['cortes']), f"{_n(R['sin_senal_min'], 1, ' min')} sin señal")]
-    tw = (W - 2*M - 3*8) / 4; th = 52
+    if R.get('acc'):
+        SL = R.get('saltos', [])
+        top_ = max(SL, key=lambda e: e['altura']) if SL else None
+        tiles.insert(4, ("Saltos", str(len(SL)),
+                         (f"máx {_n(top_['altura'], 2, ' m')} · desde {_n(R['salto_min'], 1)} m" if top_ else f"ninguno de {_n(R['salto_min'], 1)} m o más")))
+        tiles.append(("Caídas del aire", str(R.get('caidas_aire', 0)), "no cuentan como saltos"))
+    NC = 5 if len(tiles) > 8 else 4
+    tw = (W - 2*M - (NC-1)*8) / NC; th = 52
     for i, (l, v_, sub) in enumerate(tiles):
-        cx = M + (i % 4)*(tw + 8); cy = 92 + (i // 4)*(th + 8)
+        cx = M + (i % NC)*(tw + 8); cy = 92 + (i // NC)*(th + 8)
         p.rect(cx, cy, tw, th, fill=CLARO); p.rect(cx, cy, 3, th, fill=ACC)
-        p.text(cx + 10, cy + 14, l.upper(), 7, True, GRIS)
-        p.text(cx + 10, cy + 33, v_, 16, True, NAVY)
+        p.text(cx + 10, cy + 14, p.fit(l.upper(), 7, tw - 14, True), 7, True, GRIS)
+        p.text(cx + 10, cy + 33, p.fit(v_, 16 if NC == 4 else 14.5, tw - 14, True), 16 if NC == 4 else 14.5, True, NAVY)
         if sub: p.text(cx + 10, cy + 45, p.fit(sub, 6.8, tw - 14), 6.8, False, GRIS)
     my = 92 + 2*(th + 8) + 4; mh = H - my - 80
     con_sat = mapa(p, R, M, my, W - 2*M, mh, sat, fetch)
-    ly = _leyenda(p, my + mh + 16)
+    ly = _leyenda(p, my + mh + 16, saltos=R.get('acc', False))
     nota = f"Track completo. En las páginas siguientes, el track en {R['secciones']} secciones con cada maniobra numerada (T = trasluchada, V = virada)."
     if sat and not con_sat: nota += "  Sin imagen satelital (no había conexión a internet)."
     p.text(M, ly + 14, nota, 6.8, False, GRIS)
@@ -386,10 +409,11 @@ def informe(R, path, sat=True, fetch=None):
         nT = [m for m in ms if m['tipo'] == 'Trasluchada']; nV = [m for m in ms if m['tipo'] == 'Virada']
         p.text(M, 46, f"{d0/1000:.1f} a {min(d1, D)/1000:.1f} km".replace('.', ',') + (f"   ·   {h0} a {h1}" if h0 else '') +
                f"   ·   Trasluchadas {sum(m['resultado']=='Completa' for m in nT)} completas / {sum(m['resultado']=='Fallida' for m in nT)} fallidas"
-               f"   ·   Viradas {sum(m['resultado']=='Completa' for m in nV)} / {sum(m['resultado']=='Fallida' for m in nV)}", 8.5, False, '#BFD7EA')
+               f"   ·   Viradas {sum(m['resultado']=='Completa' for m in nV)} / {sum(m['resultado']=='Fallida' for m in nV)}" +
+               (f"   ·   Saltos {sum(1 for e in R.get('saltos', []) if d0 <= e['cd'] <= d1)}" if R.get('acc') else ''), 8.5, False, '#BFD7EA')
         top = 70; mh2 = H - top - 74
         mapa(p, R, M, top, W - 2*M, mh2, sat, fetch, rango=(d0, d1), numeros=True)
-        ly = _leyenda(p, top + mh2 + 16)
+        ly = _leyenda(p, top + mh2 + 16, saltos=R.get('acc', False))
         p.text(M, ly + 14, "T = trasluchada, V = virada, numeradas en orden de hora (completas y fallidas juntas); el color indica el resultado. En gris, el resto del track.", 6.8, False, GRIS)
 
     # ---------- resumen detallado y tabla de maniobras
@@ -408,6 +432,13 @@ def informe(R, path, sat=True, fetch=None):
              ("Viradas: variación promedio salida vs entrada", _pct(V['variacion'], True)),
              ("Cortes de señal GPS", str(R['cortes'])), ("Tiempo total sin señal", _n(R['sin_senal_min'], 1, ' min')),
              (f"Puntos descartados por precisión (> {R['max_acc']:g} m)", str(R['descartados_precision']))]
+    if R.get('acc'):
+        SL = R.get('saltos', []); top_ = max(SL, key=lambda e: e['altura']) if SL else None
+        filas += [(f"Saltos de {R['salto_min']:g} m o más".replace('.', ','), str(len(SL))),
+                  ("Salto más alto", f"{_n(top_['altura'], 2, ' m')}  ({top_['hora']})" if top_ else 's/d'),
+                  ("Caídas desde el aire (no cuentan como saltos)", str(R.get('caidas_aire', 0)))]
+    else:
+        filas += [("Saltos", "sin datos de acelerómetro")]
     for i, (l, v_) in enumerate(filas):
         if i % 2 == 0: p.rect(M, y, W - 2*M, 15, fill=CLARO)
         neg = v_.startswith('-') and v_.endswith('%')
@@ -446,6 +477,36 @@ def informe(R, path, sat=True, fetch=None):
         y += 16
         if y < H - 60:
             for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Entrada/Salida = velocidad media 40 m antes/después.', 7, W - 2*M):
+                p.text(M, y, ln, 7, False, GRIS); y += 9.5
+    SL = R.get('saltos', [])
+    if SL:
+        y += 14
+        if y > H - 120: p.page(); y = 50
+        scols = [("Mapa", 34, 'center'), ("Hora", 54, 'center'), ("Sec.", 30, 'center'), ("En el aire", 62, 'right'),
+                 ("Altura", 58, 'right'), ("Vel. kn", 56, 'right'), ("Después kn", 64, 'right'), ("Impacto", 0, 'right')]
+        used = sum(c[1] for c in scols); scols[-1] = (scols[-1][0], W - 2*M - used, 'right')
+        def shead(y):
+            p.text(M, y, "Saltos", 15, True, NAVY); y += 10
+            p.rect(M, y, W - 2*M, 18, fill=NAVY); xx = M
+            for nm, cw, al in scols:
+                tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
+                p.text(tx, y + 12, nm, 7.3, True, '#FFFFFF', al); xx += cw
+            return y + 18
+        y = shead(y)
+        for e in SL:
+            if y > H - 50: p.page(); y = shead(50)
+            p.rect(M, y, W - 2*M, 14, fill='#DFF9FF')
+            sec_ = min(int(e['cd'] // sl) + 1, NS) if sl else 1
+            vals = ['S' + e['nombre'].split('#')[1], e['hora'], str(sec_), _n(e['aire'], 2, ' s'), _n(e['altura'], 2, ' m'),
+                    _n(e['v_in'], 1), _n(e['v_out'], 1), _n(e['impacto_g'], 1, ' g')]
+            xx = M
+            for (nm, cw, al), val in zip(scols, vals):
+                tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
+                p.text(tx, y + 10, val, 7.8, nm in ('Mapa', 'Altura'), '#222222', al); xx += cw
+            y += 14
+        y += 12
+        if y < H - 50:
+            for ln in p.wrap("Altura estimada por el tiempo en el aire medido con el acelerómetro (teléfono en el pecho): altura = (g - tirón del ala) x t x t / 8, con t = tiempo en el aire. Solo cuenta como salto si se sigue navegando después; si se para o se corta la señal es una caída desde el aire.", 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     for i, c in enumerate(p.pages, 1):           # pie de página
         p.c = c; p.text(W/2, H - 18, f"Wingfoil Tracker · Análisis WingFoil Completo · {R['fecha']} · página {i} de {len(p.pages)}", 7, False, '#8899AA', 'center')

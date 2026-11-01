@@ -9,6 +9,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -77,6 +81,41 @@ class TrackService : Service() {
     private var t0 = 0L                 // hora (ms) del primer fix de la sesión
     private var watchStartedElapsed = 0L
 
+    // Acelerómetro (para detectar saltos): TotalAcceleration.csv, formato Sensor Logger (time,seconds_elapsed,z,y,x)
+    private var accThread: HandlerThread? = null
+    private var accWriter: BufferedWriter? = null
+    private var accOffsetNs = 0L          // reloj de pared - reloj del sensor
+    private val accListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            val w = accWriter ?: return
+            val wallNs = e.timestamp + accOffsetNs
+            val sb = StringBuilder(64)
+            sb.append(wallNs).append(',')
+            sb.append(String.format(Locale.US, "%.3f", (wallNs / 1_000_000L - startWall) / 1000.0)).append(',')
+            sb.append(String.format(Locale.US, "%.4f,%.4f,%.4f", e.values[2], e.values[1], e.values[0])).append('\n')
+            try { w.write(sb.toString()) } catch (_: Exception) { }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun startAccel(dir: File) {
+        val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val acc = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+        val f = File(dir, "TotalAcceleration.csv")
+        val nuevo = !f.exists() || f.length() == 0L
+        accWriter = BufferedWriter(FileWriter(f, true), 64 * 1024).apply { if (nuevo) write("time,seconds_elapsed,z,y,x\n") }
+        accOffsetNs = System.currentTimeMillis() * 1_000_000L - SystemClock.elapsedRealtimeNanos()
+        accThread = HandlerThread("acc").apply { start() }
+        sm.registerListener(accListener, acc, 10_000, 0, Handler(accThread!!.looper))     // 100 Hz, sin demora
+    }
+
+    private fun stopAccel() {
+        try { (getSystemService(Context.SENSOR_SERVICE) as SensorManager).unregisterListener(accListener) } catch (_: Exception) { }
+        accThread?.quitSafely(); accThread = null
+        try { accWriter?.flush(); accWriter?.close() } catch (_: Exception) { }
+        accWriter = null
+    }
+
     private val listener = object : LocationListener {
         override fun onLocationChanged(l: Location) = onFix(l)
         override fun onProviderEnabled(provider: String) {}
@@ -95,6 +134,7 @@ class TrackService : Service() {
                 startGps()            // reintenta hasta que vuelva la señal
             }
             if (wakeLock?.isHeld != true) acquireWakeLock()
+            try { accWriter?.flush() } catch (_: Exception) { }
             updateNotification()
             handler?.postDelayed(this, 3_000L)
         }
@@ -162,6 +202,7 @@ class TrackService : Service() {
         handler = Handler(thread!!.looper)
         startGps()
         handler?.postDelayed(watchdog, 3_000L)
+        try { startAccel(dir) } catch (_: Exception) { }
     }
 
     @SuppressLint("MissingPermission")
@@ -235,13 +276,14 @@ class TrackService : Service() {
         val start = if (t0 > 0) t0 else startWall
         val txt = "version,device name,recording epoch time,recording time,recording timezone,platform,appVersion,device id,sensors,sampleRateMs,standardisation\n" +
             listOf("3", "${Build.MANUFACTURER} ${Build.MODEL}".replace(",", " "), start.toString(),
-                fmt.format(Date(start)), TimeZone.getDefault().id, "android", "WingfoilTracker-Android-1.0",
-                dir.name, "Location", "1000", "false").joinToString(",") + "\n"
+                fmt.format(Date(start)), TimeZone.getDefault().id, "android", "WingfoilTracker-Android-1.5",
+                dir.name, "Location|TotalAcceleration", "1000|10", "false").joinToString(",") + "\n"
         try { File(dir, "Metadata.csv").writeText(txt) } catch (_: Exception) { }
     }
 
     private fun stopRecording() {
         running = false
+        stopAccel()
         handler?.removeCallbacksAndMessages(null)
         try { lm.removeUpdates(listener) } catch (_: Exception) { }
         try { writer?.flush(); writer?.close() } catch (_: Exception) { }
@@ -258,6 +300,7 @@ class TrackService : Service() {
         // Si el sistema destruye el servicio sin "Terminar", se deja todo guardado y la sesión abierta para retomar
         if (running) {
             running = false
+            stopAccel()
             handler?.removeCallbacksAndMessages(null)
             try { lm.removeUpdates(listener) } catch (_: Exception) { }
             try { writer?.flush(); writer?.close() } catch (_: Exception) { }
