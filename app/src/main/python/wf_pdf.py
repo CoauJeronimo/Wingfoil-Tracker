@@ -276,8 +276,6 @@ def mapa(p, R, x, y, w, h, sat=True, fetch=None, rango=None, numeros=False):
             cur.append(P(b[0], b[1]))
         if len(cur) > 1: out.append((cb, cur))
         return out
-    if rango is not None:
-        for _, pts in tramos(tr, True): p.polyline(pts, '#A9B8C9', 0.6)
     vivos = tramos(tr, False)
     if con_sat:
         for _, pts in vivos: p.polyline(pts, '#111111', 2.4 if rango else 2.2)
@@ -424,7 +422,7 @@ def informe(R, path, sat=True, fetch=None):
         top = 70; mh2 = H - top - 74
         mapa(p, R, M, top, W - 2*M, mh2, sat, fetch, rango=(d0, d1), numeros=True)
         ly = _leyenda(p, top + mh2 + 16, saltos=R.get('acc', False))
-        p.text(M, ly + 14, "T = trasluchada, V = virada, numeradas en orden de hora (completas y fallidas juntas); el color indica el resultado. En gris, el resto del track.", 6.8, False, GRIS)
+        p.text(M, ly + 14, "T = trasluchada, V = virada, numeradas en orden de hora (completas y fallidas juntas); el color indica el resultado.", 6.8, False, GRIS)
 
     # ---------- resumen detallado y tabla de maniobras
     p.page(); y = 50
