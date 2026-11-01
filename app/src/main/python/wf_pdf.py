@@ -365,14 +365,13 @@ def informe(R, path, sat=True, fetch=None):
     if R['excluidos']:
         p.text(M, 68, "Tramos excluidos: " + ", ".join(f"{a}–{b}" for a, b in R['excluidos']), 8, False, '#BFD7EA')
     T, V = R['por_tipo']['Trasluchada'], R['por_tipo']['Virada']
-    tiles = [("Distancia", _n(R['distancia_km'], 2, ' km'), ''),
-             ("Tiempo", _n(R['tiempo_min'], 1, ' min'), ''),
-             ("Planeo (>7 kn)", _pct(R['planeo_pct']), _n(R['planeo_min'], 1, ' min')),
+    tiles = [("Distancia total", _n(R['distancia_km'], 2, ' km'), ''),
+             ("Tiempo total de sesión", _n(R['tiempo_min'], 1, ' min'), ''),
+             ("Tiempo de planeo (>7 kn)", _n(R['planeo_min'], 1, ' min'), f"{_pct(R['planeo_pct'])} del tiempo"),
              ("Vel. media en planeo", _n(R['vel_media_planeo'], 2, ' kn'), ''),
              ("Vel. máx. en 20 m", _n(R['vmax20'], 2, ' kn'), R['vmax20_hora']),
              ("Trasluchadas", f"{T['completas']} / {T['fallidas']}", f"compl./fall. · éxito {_pct(T['exito'])}"),
-             ("Viradas", f"{V['completas']} / {V['fallidas']}", f"compl./fall. · éxito {_pct(V['exito'])}"),
-             ("Cortes de señal", str(R['cortes']), f"{_n(R['sin_senal_min'], 1, ' min')} sin señal")]
+             ("Viradas", f"{V['completas']} / {V['fallidas']}", f"compl./fall. · éxito {_pct(V['exito'])}")]
     if R.get('acc'):
         SL = R.get('saltos', [])
         top_ = max(SL, key=lambda e: e['altura']) if SL else None
@@ -381,14 +380,21 @@ def informe(R, path, sat=True, fetch=None):
                          (f"compl./fall. · éxito {_pct(sc_ / len(SL))}" if SL else "ninguno en esta sesión")))
         tiles.append(("Salto más alto", _n(top_['altura'], 2, ' m') if top_ else 's/d',
                       f"{top_['hora']} · {top_['resultado'].lower()}" if top_ else "sin saltos"))
-    NC = 5 if len(tiles) > 8 else 4
-    tw = (W - 2*M - (NC-1)*8) / NC; th = 52
-    for i, (l, v_, sub) in enumerate(tiles):
-        cx = M + (i % NC)*(tw + 8); cy = 92 + (i // NC)*(th + 8)
-        p.rect(cx, cy, tw, th, fill=CLARO); p.rect(cx, cy, 3, th, fill=ACC)
-        p.text(cx + 10, cy + 14, p.fit(l.upper(), 7, tw - 14, True), 7, True, GRIS)
-        p.text(cx + 10, cy + 33, p.fit(v_, 16 if NC == 4 else 14.5, tw - 14, True), 16 if NC == 4 else 14.5, True, NAVY)
-        if sub: p.text(cx + 10, cy + 45, p.fit(sub, 6.8, tw - 14), 6.8, False, GRIS)
+    # dos filas; cada fila reparte el ancho en partes iguales; todo centrado
+    n1 = (len(tiles) + 1) // 2; filas_t = [tiles[:n1], tiles[n1:]]
+    th = 56
+    for fi, fila in enumerate(filas_t):
+        if not fila: continue
+        tw = (W - 2*M - (len(fila)-1)*8) / len(fila)
+        for j, (l, v_, sub) in enumerate(fila):
+            cx = M + j*(tw + 8); cy = 92 + fi*(th + 8); mx = cx + tw/2
+            p.rect(cx, cy, tw, th, fill=CLARO); p.rect(cx, cy, tw, 3, fill=ACC)
+            lab = l.upper(); fsl = 7
+            while text_width(lab, fsl, True) > tw - 10 and fsl > 5.6: fsl -= 0.2
+            p.text(mx, cy + 16, p.fit(lab, fsl, tw - 8, True), fsl, True, GRIS, 'center')
+            fsv = 16 if len(fila) <= 4 else 15
+            p.text(mx, cy + 36, p.fit(v_, fsv, tw - 10, True), fsv, True, NAVY, 'center')
+            if sub: p.text(mx, cy + 49, p.fit(sub, 6.8, tw - 8), 6.8, False, GRIS, 'center')
     my = 92 + 2*(th + 8) + 4; mh = H - my - 80
     con_sat = mapa(p, R, M, my, W - 2*M, mh, sat, fetch)
     ly = _leyenda(p, my + mh + 16, saltos=R.get('acc', False))
