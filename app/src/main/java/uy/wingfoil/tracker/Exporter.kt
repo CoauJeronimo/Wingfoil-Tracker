@@ -63,12 +63,12 @@ object Exporter {
         return uri
     }
 
-    private fun gpx(dir: File): String {
+    fun gpx(dir: File): String {
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        sb.append("<gpx version=\"1.1\" creator=\"Wingfoil Tracker\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
-        sb.append("<trk><name>").append(dir.name).append("</name><trkseg>\n")
+        sb.append("<gpx version=\"1.1\" creator=\"Wingfoil &amp; PW Tracker\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        sb.append("<trk><name>").append(dir.name).append("</name><type>wingfoil</type><trkseg>\n")
         var prev = 0L
         File(dir, "Location.csv").useLines { lines ->
             lines.drop(1).forEach { line ->

@@ -274,6 +274,11 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f)
                 setOnClickListener { share(d) }
             }
+            val gpxB = Button(this).apply {
+                text = "🎬 GPX"; isAllCaps = false
+                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f)
+                setOnClickListener { shareGpx(d) }
+            }
             val del = Button(this).apply {
                 text = "🗑"; layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
                 setOnClickListener {
@@ -287,7 +292,7 @@ class MainActivity : Activity() {
                         .setNegativeButton("Cancelar", null).show()
                 }
             }
-            btns.addView(analyze); btns.addView(share); btns.addView(del)
+            btns.addView(analyze); btns.addView(share); btns.addView(gpxB); btns.addView(del)
             row.addView(btns)
             list.addView(row)
         }
@@ -393,6 +398,26 @@ class MainActivity : Activity() {
                     .show()
             }
         }.start()
+    }
+
+    /** GPX suelto (para Relive, Strava, Google Earth…): Descargas/WingFoil/GPX + menú para compartir. */
+    private fun shareGpx(dir: File) {
+        try {
+            val f = File(cacheDir, dir.name + ".gpx")
+            f.writeText(Exporter.gpx(dir))
+            val uri = Analysis.saveToDownloads(this, f, "application/gpx+xml", "GPX")
+            if (uri == null) { toast("No se pudo crear el GPX"); return }
+            toast("Guardado en Descargas/WingFoil/GPX/${f.name}")
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/gpx+xml"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, dir.name)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, "Compartir GPX (Relive, Strava…)"))
+        } catch (e: Exception) {
+            toast("Error al exportar el GPX: ${e.message}")
+        }
     }
 
     private fun share(dir: File) {
