@@ -65,42 +65,25 @@ object Exporter {
         return uri
     }
 
-    /**
-     * GPX "estándar" (lo aceptan Relive, Strava, Garmin, Google Earth…): un solo tramo, horas en segundos
-     * enteros sin milisegundos, bloque de metadatos con la hora de inicio, sin altitud (en el agua es ruido)
-     * y sin puntos con precisión peor que 20 m.
-     */
     fun gpx(dir: File): String {
-        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-        val nombre = SessionInfo.get(dir, "nombre").ifEmpty { dir.name }
-            .replace("&", "y").replace("<", "").replace(">", "")
-        val pts = StringBuilder()
-        var last = -1L; var first = -1L
+        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        val sb = StringBuilder()
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        sb.append("<gpx version=\"1.1\" creator=\"Wingfoil &amp; PW Tracker\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        sb.append("<trk><name>").append(SessionInfo.get(dir, "nombre").ifEmpty { dir.name }.replace("&", "&amp;").replace("<", "&lt;")).append("</name><type>wingfoil</type><trkseg>\n")
+        var prev = 0L
         File(dir, "Location.csv").useLines { lines ->
             lines.drop(1).forEach { line ->
                 val c = line.split(',')
                 if (c.size < 11) return@forEach
-                val acc = c[5].toDoubleOrNull()
-                if (acc != null && acc > 20) return@forEach
-                val sec = (c[0].toLongOrNull() ?: return@forEach) / 1_000_000_000L
-                val la = c[10].toDoubleOrNull() ?: return@forEach; val lo = c[9].toDoubleOrNull() ?: return@forEach
-                if (sec <= last) return@forEach
-                if (first < 0) first = sec
-                last = sec
-                pts.append("<trkpt lat=\"").append(String.format(Locale.US, "%.7f", la)).append("\" lon=\"")
-                    .append(String.format(Locale.US, "%.7f", lo)).append("\"><time>").append(iso.format(Date(sec * 1000)))
-                    .append("</time></trkpt>\n")
+                val ms = (c[0].toLongOrNull() ?: return@forEach) / 1_000_000L
+                if (prev > 0 && ms - prev > 30_000L) sb.append("</trkseg><trkseg>\n")   // corte largo = segmento nuevo
+                sb.append("<trkpt lat=\"").append(c[10]).append("\" lon=\"").append(c[9]).append("\">")
+                if (c[8].isNotEmpty()) sb.append("<ele>").append(c[8]).append("</ele>")
+                sb.append("<time>").append(iso.format(Date(ms))).append("</time></trkpt>\n")
+                prev = ms
             }
         }
-        val sb = StringBuilder()
-        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        sb.append("<gpx version=\"1.1\" creator=\"Wingfoil and PW Tracker\" xmlns=\"http://www.topografix.com/GPX/1/1\" ")
-        sb.append("xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ")
-        sb.append("xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
-        sb.append("<metadata><name>").append(nombre).append("</name>")
-        if (first > 0) sb.append("<time>").append(iso.format(Date(first * 1000))).append("</time>")
-        sb.append("</metadata>\n<trk><name>").append(nombre).append("</name><trkseg>\n")
-        sb.append(pts)
         sb.append("</trkseg></trk></gpx>\n")
         return sb.toString()
     }
