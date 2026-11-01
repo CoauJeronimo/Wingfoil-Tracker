@@ -265,10 +265,10 @@ M = fin
 # 8) SALTOS con el acelerómetro (TotalAcceleration.csv, opcional: Sensor Logger o Wingfoil Tracker >= 1.5)
 #    En el aire el teléfono (en el pecho) queda casi en caída libre: |a| muy por debajo de 1 g.
 #    Tiempo en el aire t -> altura h = (g - a_media) * t² / 8  (a_media = tirón del ala que queda durante el vuelo).
-#    Salto = se sigue navegando después (>= 6 kn de media entre 1 y 5 s después, sin corte de señal).
-#    Si después se para o se corta la señal (teléfono al agua), es una CAÍDA y no se cuenta como salto.
+#    Salto FALLIDO = en los 10 s posteriores al aterrizaje la velocidad cae bajo 4 kn por más de 5 s,
+#    o la señal GPS se corta más de 5 s (teléfono bajo el agua). Si no, salto COMPLETO.
 G = 9.81; A_LOW = 5.0; SALTO_MIN = A.salto_min
-SALTOS = []; CAIDAS_AIRE = []; ACC_OK = False
+SALTOS = []; ACC_OK = False
 acc_f = None
 if A.location.lower().endswith('.zip'): acc_f = _abrir(A.location, 'TotalAcceleration.csv')
 else:
@@ -323,14 +323,34 @@ if acc_f:
             if v_in < 7: continue                                     # solo navegando en planeo
             imp = max(am[j0_:min(NA, j0_ + int(0.6 * fs) + 1)] or [0])
             desp = [i for i in range(k_, n) if te_ + 1 <= t[i] <= te_ + 5 and seg[i] == seg[k_]]
-            corte_ = any(t[i] - t[i-1] > 3 or seg[i] != seg[i-1] for i in range(k_ + 1, n) if t[i-1] <= te_ + 5)
             v_out = sum(v[i] for i in desp) / len(desp) if desp else None
-            ev = {'t': ts_, 'aire': dur, 'altura': h_, 'v_in': v_in, 'v_out': v_out, 'impacto_g': imp / G,
-                  'lat': lat[k_], 'lon': lon[k_], 'cd': cd[k_]}
-            (SALTOS if (v_out is not None and v_out >= 6 and not corte_) else CAIDAS_AIRE).append(ev)
-        for i_, e_ in enumerate(SALTOS, 1): e_['nombre'] = f"Salto #{i_}"
-    print(f"Saltos (>= {SALTO_MIN:g} m): {len(SALTOS)}" + (f" | más alto {max(e_['altura'] for e_ in SALTOS):.2f} m" if SALTOS else '') +
-          f" | caídas desde el aire (no cuentan): {len(CAIDAS_AIRE)}")
+            # ¿fallido? se mira desde el aterrizaje hasta 10 s después (una racha lenta puede seguir más allá)
+            fallido = False; nota_ = ''
+            prev_ = max(k_, bisect.bisect_right(t, te_) - 1)
+            i = prev_ + 1
+            if i >= n or seg[i] != seg[prev_] or t[i] - max(te_, t[prev_]) > 5:
+                fallido = True; nota_ = 'corte de señal tras el aterrizaje'
+            else:
+                q_ = prev_ + 1                                         # corte de señal > 5 s dentro de los 10 s
+                while q_ < n and t[q_ - 1] <= te_ + 10:
+                    if seg[q_] != seg[q_ - 1] or t[q_] - t[q_ - 1] > 5:
+                        fallido = True; nota_ = 'corte de señal tras el aterrizaje'; break
+                    q_ += 1
+                if q_ >= n and t[n - 1] < te_ + 10: fallido = True; nota_ = 'corte de señal tras el aterrizaje'
+                while i < n and seg[i] == seg[prev_] and t[i] <= te_ + 10 and not fallido:
+                    if v[i] < 4:
+                        j = i
+                        while j + 1 < n and seg[j+1] == seg[i] and v[j+1] < 4 and t[j+1] - t[j] <= 5: j += 1
+                        fin_ = (j + 1 >= n or seg[j+1] != seg[i] or t[j+1] - t[j] > 5)    # la racha termina en un corte
+                        if t[j] - t[i] > 5 or fin_:
+                            fallido = True; nota_ = 'velocidad < 4 kn más de 5 s' if not fin_ else 'velocidad < 4 kn y corte de señal'
+                        i = j + 1
+                    else: i += 1
+            SALTOS.append({'t': ts_, 'aire': dur, 'altura': h_, 'v_in': v_in, 'v_out': v_out, 'impacto_g': imp / G,
+                           'lat': lat[k_], 'lon': lon[k_], 'cd': cd[k_], 'resultado': 'Fallido' if fallido else 'Completo', 'nota': nota_})
+        for i_, e_ in enumerate(SALTOS, 1): e_['nombre'] = f"Salto #{i_} ({e_['resultado']})"
+    print(f"Saltos (>= {SALTO_MIN:g} m): {len(SALTOS)} | completos {sum(e_['resultado'] == 'Completo' for e_ in SALTOS)} | fallidos {sum(e_['resultado'] == 'Fallido' for e_ in SALTOS)}" +
+          (f" | más alto {max(e_['altura'] for e_ in SALTOS):.2f} m" if SALTOS else ''))
 else:
     print("Saltos: sin datos de acelerómetro (TotalAcceleration.csv)")
 
@@ -379,11 +399,19 @@ for key, (ic, nm) in icons.items():
     k_.append('</Folder>')
 k_.append('</Folder>')
 if SALTOS:
-    k_.append('<Style id="salto"><IconStyle><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/ylw-blank.png</href></Icon></IconStyle></Style>')
+    k_.append('<Style id="saltoC"><IconStyle><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/ylw-blank.png</href></Icon></IconStyle></Style>')
+    k_.append('<Style id="saltoF"><IconStyle><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/pink-blank.png</href></Icon></IconStyle></Style>')
     k_.append(f'<Folder><name>Saltos (>= {SALTO_MIN:g} m) ({len(SALTOS)})</name>')
-    for e_ in SALTOS:
-        d_ = f"Hora: {hora(e_['t'])}<br/>Tiempo en el aire: {e_['aire']:.2f} s<br/>Altura estimada: {e_['altura']:.2f} m<br/>Velocidad: {e_['v_in']:.1f} kn"
-        k_.append(f'<Placemark><name>{e_["nombre"]} — {e_["altura"]:.1f} m — {hora(e_["t"])}</name><description><![CDATA[{d_}]]></description><styleUrl>#salto</styleUrl><Point><coordinates>{e_["lon"]:.7f},{e_["lat"]:.7f},0</coordinates></Point></Placemark>')
+    for res_, sty_, tit_ in (('Completo', 'saltoC', 'Salto COMPLETO (sigue navegando)'), ('Fallido', 'saltoF', 'Salto FALLIDO (con caída)')):
+        L_ = [e_ for e_ in SALTOS if e_['resultado'] == res_]
+        if not L_: continue
+        k_.append(f'<Folder><name>{tit_} ({len(L_)})</name>')
+        for e_ in L_:
+            d_ = (f"Hora: {hora(e_['t'])}<br/>Tiempo en el aire: {e_['aire']:.2f} s<br/>Altura estimada: {e_['altura']:.2f} m<br/>Velocidad: {e_['v_in']:.1f} kn"
+                  + (f"<br/>Nota: {e_['nota']}" if e_['nota'] else ''))
+            nm_ = e_['nombre'].split(' (')[0]
+            k_.append(f'<Placemark><name>{nm_} — {e_["altura"]:.1f} m — {hora(e_["t"])} ({res_})</name><description><![CDATA[{d_}]]></description><styleUrl>#{sty_}</styleUrl><Point><coordinates>{e_["lon"]:.7f},{e_["lat"]:.7f},0</coordinates></Point></Placemark>')
+        k_.append('</Folder>')
     k_.append('</Folder>')
 k_.append('<Style id="vmax"><IconStyle><scale>1.3</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/purple-stars.png</href></Icon></IconStyle></Style>')
 k_.append(f'<Placemark><name>Velocidad máxima 20 m: {VM20:.1f} kn — {hora(t[VM20a])}</name><description><![CDATA[Media de la velocidad GPS en el tramo de 20 m de mayor velocidad ({hora(t[VM20a])} a {hora(t[VM20b])}).]]></description><styleUrl>#vmax</styleUrl><Point><coordinates>{lon[VM20a]:.7f},{lat[VM20a]:.7f},0</coordinates></Point></Placemark>')
@@ -442,7 +470,10 @@ rows = [('Origen del archivo', ORIGEN_TXT, None),
         ('Tiempo total sin señal (min)', round(T_SIN/60, 2), '0.0'),
         (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None)]
 if ACC_OK:
+    _sc = sum(e_['resultado'] == 'Completo' for e_ in SALTOS); _sf = len(SALTOS) - _sc
     rows += [(f'Saltos de {SALTO_MIN:g} m o más (cantidad)', len(SALTOS), None),
+             ('Saltos completos (siguen navegando)', _sc, None), ('Saltos fallidos (con caída)', _sf, None),
+             ('% de éxito en saltos', (_sc / len(SALTOS)) if SALTOS else 's/d', '0.0%'),
              ('Salto más alto (m)', round(max(e_['altura'] for e_ in SALTOS), 2) if SALTOS else 's/d', '0.00'),
              ('Hora del salto más alto', hora(max(SALTOS, key=lambda e_: e_['altura'])['t']) if SALTOS else 's/d', None)]
 else:
@@ -459,13 +490,14 @@ for i, (l, vv, f) in enumerate(rows, 4):
 wr.column_dimensions['B'].width = 46; wr.column_dimensions['C'].width = 20
 if ACC_OK:
     wsx = wb.create_sheet('Saltos', 2)
-    for ci, h in enumerate(['Nombre (igual que en el KML)', 'Hora local', 'Tiempo en el aire (s)', 'Altura estimada (m)', 'Velocidad (kn)', 'Velocidad después (kn)', 'Impacto al aterrizar (g)', 'Latitud', 'Longitud'], 1):
+    for ci, h in enumerate(['Nombre', 'Resultado', 'Hora local', 'Tiempo en el aire (s)', 'Altura estimada (m)', 'Velocidad (kn)', 'Velocidad después (kn)', 'Impacto al aterrizar (g)', 'Latitud', 'Longitud', 'Observación'], 1):
         x = wsx.cell(1, ci, h); x.font = HFo; x.fill = HF; x.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     for r, e_ in enumerate(SALTOS, 2):
-        for ci, val in enumerate([e_['nombre'], hora(e_['t']), round(e_['aire'], 2), round(e_['altura'], 2), round(e_['v_in'], 1),
-                                  round(e_['v_out'], 1) if e_['v_out'] is not None else None, round(e_['impacto_g'], 1), round(e_['lat'], 6), round(e_['lon'], 6)], 1):
-            wsx.cell(r, ci, val).font = N
-    for col, w in zip('ABCDEFGHI', [28, 12, 16, 16, 14, 18, 18, 12, 12]): wsx.column_dimensions[col].width = w
+        flx = PatternFill('solid', fgColor='DFF9FF' if e_['resultado'] == 'Completo' else 'FFD6EC')
+        for ci, val in enumerate([e_['nombre'], e_['resultado'], hora(e_['t']), round(e_['aire'], 2), round(e_['altura'], 2), round(e_['v_in'], 1),
+                                  round(e_['v_out'], 1) if e_['v_out'] is not None else None, round(e_['impacto_g'], 1), round(e_['lat'], 6), round(e_['lon'], 6), e_['nota']], 1):
+            x = wsx.cell(r, ci, val); x.font = N; x.fill = flx
+    for col, w in zip('ABCDEFGHIJK', [24, 12, 12, 16, 16, 14, 18, 18, 12, 12, 30]): wsx.column_dimensions[col].width = w
     wsx.row_dimensions[1].height = 30
 xlsx_path = os.path.join(A.outdir, f'track_wingfoil_{FECHA}_maniobras.xlsx'); wb.save(xlsx_path)
 print("KML:", kml_path); print("XLSX:", xlsx_path)
@@ -503,8 +535,8 @@ if A.json:
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
         'acc': ACC_OK, 'salto_min': SALTO_MIN,
         'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'v_in': e_['v_in'],
-                    'v_out': e_['v_out'], 'impacto_g': e_['impacto_g'], 'lat': e_['lat'], 'lon': e_['lon'], 'cd': e_['cd']} for e_ in SALTOS],
-        'caidas_aire': len(CAIDAS_AIRE),
+                    'v_out': e_['v_out'], 'impacto_g': e_['impacto_g'], 'lat': e_['lat'], 'lon': e_['lon'], 'cd': e_['cd'],
+                    'resultado': e_['resultado'], 'nota': e_['nota']} for e_ in SALTOS],
         'track': [[round(lat[i], 7), round(lon[i], 7), round(v[i], 2), seg[i], round(cd[i], 1), round(t[i], 1)] for i in range(0, n, paso)],
         'dist_total_m': cd[-1], 'epoch': EP, 'utc': UTC,
         'kml': os.path.basename(kml_path), 'xlsx': os.path.basename(xlsx_path),
