@@ -266,11 +266,17 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = dp(8) }
             }
             val dur = if (sm.points > 1) (sm.lastMs - sm.firstMs) / 1000 else 0
+            val nombre = SessionInfo.get(d, "nombre")
+            val fechaTxt = if (sm.points > 0) fmt.format(Date(sm.firstMs)) else d.name
             row.addView(text(16f, Color.WHITE, true).apply {
-                text = if (sm.points > 0) fmt.format(Date(sm.firstMs)) else d.name
+                text = (if (nombre.isNotEmpty()) nombre else fechaTxt) + "  ✏️"
+                setPadding(0, dp(4), 0, dp(4))
+                setOnClickListener { renameDialog(d) }
             })
             row.addView(text(13f, mut).apply {
-                text = String.format(Locale.US, "%d:%02d:%02d · %d puntos", dur / 3600, (dur / 60) % 60, dur % 60, sm.points)
+                val lugar = SessionInfo.get(d, "lugar")
+                text = (if (nombre.isNotEmpty()) "$fechaTxt · " else "") + (if (lugar.isNotEmpty()) "$lugar · " else "") +
+                    String.format(Locale.US, "%d:%02d:%02d · %d puntos", dur / 3600, (dur / 60) % 60, dur % 60, sm.points)
             })
             val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val analyze = Button(this).apply {
@@ -292,10 +298,11 @@ class MainActivity : Activity() {
                 text = "🗑"; layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
                 setOnClickListener {
                     AlertDialog.Builder(this@MainActivity).setTitle("¿Borrar esta sesión?")
-                        .setMessage("Si ya la exportaste, el ZIP en Descargas no se borra.")
+                        .setMessage("Se borran la grabación, su análisis y los archivos de esta sesión guardados en Descargas/WingFoil (ZIP, GPX, PDF, KML y Excel).")
                         .setPositiveButton("Borrar") { _, _ ->
                             if (TrackService.prefs(this@MainActivity).getString("activeDir", null) == d.absolutePath)
                                 TrackService.prefs(this@MainActivity).edit().remove("activeDir").apply()
+                            SessionInfo.deleteDownloads(this@MainActivity, d)
                             d.deleteRecursively(); buildList()
                         }
                         .setNegativeButton("Cancelar", null).show()
@@ -308,6 +315,15 @@ class MainActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    private fun renameDialog(dir: File) {
+        val f = field("ej. Domingo con olas", SessionInfo.get(dir, "nombre"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+        val box = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)) }
+        AlertDialog.Builder(this).setTitle("Nombre de la sesión").setView(box)
+            .setPositiveButton("Guardar") { _, _ -> SessionInfo.set(dir, "nombre" to f.text.toString()); buildList() }
+            .setNeutralButton("Quitar nombre") { _, _ -> SessionInfo.set(dir, "nombre" to ""); buildList() }
+            .setNegativeButton("Cancelar", null).show()
+    }
 
     /* ---------- Análisis WingFoil Completo ---------- */
     private fun field(hint: String, value: String, type: Int): EditText = EditText(this).apply {
@@ -331,6 +347,19 @@ class MainActivity : Activity() {
         label("Tramos a excluir (opcional, hora local)")
         val fExc = field("14:57:18-15:09:39, …", "", InputType.TYPE_CLASS_TEXT)
         box.addView(fExc)
+        val info = SessionInfo.load(dir)
+        label("Intensidad del viento en nudos (opcional)")
+        val fKn = field("ej. 16", info.optString("viento_kn", ""), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        box.addView(fKn)
+        label("Lugar (opcional)")
+        val fLugar = field("ej. La Paloma", info.optString("lugar", "").ifEmpty { p.getString("lastLugar", "") ?: "" }, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+        box.addView(fLugar)
+        label("Comentario (opcional)")
+        val fCom = field("cómo estuvo la sesión, equipo, etc.", info.optString("comentario", ""),
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES).apply {
+            minLines = 2; maxLines = 6; isSingleLine = false
+        }
+        box.addView(fCom)
         val cSat = CheckBox(this).apply {
             text = "Foto satelital de fondo en el mapa (usa internet; queda guardada para la próxima)"
             setTextColor(Color.WHITE); textSize = 14f
@@ -355,7 +384,9 @@ class MainActivity : Activity() {
                 sec < 1 || sec > 50 -> fSec.error = "Entre 1 y 50"
                 else -> {
                     p.edit().putString("lastWind", fWind.text.toString()).putString("lastSections", sec.toString())
-                        .putBoolean("lastSat", cSat.isChecked).apply()
+                        .putBoolean("lastSat", cSat.isChecked).putString("lastLugar", fLugar.text.toString().trim()).apply()
+                    SessionInfo.set(dir, "viento_kn" to fKn.text.toString(), "lugar" to fLugar.text.toString(),
+                        "comentario" to fCom.text.toString())
                     dlg.dismiss()
                     runAnalysis(dir, wind, fecha, sec, fExc.text.toString(), cSat.isChecked)
                 }
@@ -368,13 +399,17 @@ class MainActivity : Activity() {
             .setMessage("Calculando maniobras y armando el PDF y el KML.\nLa primera vez tarda unos segundos más.")
             .setCancelable(false).show()
         Thread {
-            val r = try { Analysis.run(this, dir, wind, fecha, sec, exc, sat) }
+            val inf = SessionInfo.load(dir)
+            val r = try { Analysis.run(this, dir, wind, fecha, sec, exc, sat, inf.optString("nombre"), inf.optString("lugar"),
+                                       inf.optString("viento_kn"), inf.optString("comentario")) }
                     catch (e: Throwable) { Analysis.Result(false, error = e.toString()) }
             var pdfUri: Uri? = null; var kmlUri: Uri? = null
             if (r.ok) try {
-                pdfUri = Analysis.saveToDownloads(this, r.pdf!!, "application/pdf")
-                kmlUri = Analysis.saveToDownloads(this, r.kml!!, "application/vnd.google-earth.kml+xml")
-                Analysis.saveToDownloads(this, r.xlsx!!, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                SessionInfo.deleteDownloads(this, dir, "analisis")     // reemplaza el análisis anterior de esta sesión
+                pdfUri = Analysis.saveToDownloads(this, r.pdf!!, "application/pdf", name = "${dir.name}_analisis.pdf")
+                kmlUri = Analysis.saveToDownloads(this, r.kml!!, "application/vnd.google-earth.kml+xml", name = "${dir.name}.kml")
+                val xUri = Analysis.saveToDownloads(this, r.xlsx!!, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name = "${dir.name}.xlsx")
+                for (u in listOf(pdfUri, kmlUri, xUri)) if (u != null) SessionInfo.addDownload(dir, u, "analisis")
             } catch (_: Exception) { }
             runOnUiThread {
                 wait.dismiss()
@@ -384,7 +419,7 @@ class MainActivity : Activity() {
                     return@runOnUiThread
                 }
                 AlertDialog.Builder(this)
-                    .setTitle("Análisis listo · $fecha")
+                    .setTitle("Análisis listo · " + SessionInfo.get(dir, "nombre").ifEmpty { fecha })
                     .setMessage(r.resumen + "\n\nGuardado en Descargas/WingFoil/Analisis (PDF, KML y Excel).")
                     .setPositiveButton("Ver PDF") { _, _ ->
                         if (pdfUri != null) try {
@@ -414,8 +449,10 @@ class MainActivity : Activity() {
         try {
             val f = File(cacheDir, dir.name + ".gpx")
             f.writeText(Exporter.gpx(dir))
+            SessionInfo.deleteDownloads(this, dir, "gpx")
             val uri = Analysis.saveToDownloads(this, f, "application/gpx+xml", "GPX")
             if (uri == null) { toast("No se pudo crear el GPX"); return }
+            SessionInfo.addDownload(dir, uri, "gpx")
             toast("Guardado en Descargas/WingFoil/GPX/${f.name}")
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "application/gpx+xml"

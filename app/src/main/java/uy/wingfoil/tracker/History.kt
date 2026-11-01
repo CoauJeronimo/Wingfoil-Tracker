@@ -93,12 +93,19 @@ object History {
                 orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(9, 28, 52)); setPadding(dp(14), dp(10), dp(14), dp(10))
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
             }
-            c.addView(tv("${r.optString("fecha")} · ${r.optString("hora_inicio").take(5)} · ${f1(d(r, "distancia_km"), " km")}", 15f, Color.WHITE, true))
+            val nom = r.optString("nombre", ""); val lug = r.optString("lugar", "")
+            val vkn = d(r, "viento_kn")
+            c.addView(tv(if (nom.isNotEmpty()) nom else "${r.optString("fecha")} · ${r.optString("hora_inicio").take(5)}", 15f, Color.WHITE, true))
+            c.addView(tv(listOfNotNull(if (nom.isNotEmpty()) "${r.optString("fecha")} ${r.optString("hora_inicio").take(5)}" else null,
+                lug.ifEmpty { null }, "viento ${r.optDouble("viento", 0.0).toInt()}°" + (if (vkn != null) " ${f1(vkn, " kn")}" else ""),
+                f1(d(r, "distancia_km"), " km")).joinToString(" · "), 12.5f, Color.rgb(143, 169, 199)))
             c.addView(tv(
                 "Duración ${f1(d(r, "tiempo_min"), " min")} · Planeo ${pct(d(r, "planeo_pct"))}\n" +
                 "Trasluchadas ${s.T.optInt("completas")} / ${s.T.optInt("fallidas")} · ${f1(d(s.T, "v_in"))} → ${f1(d(s.T, "v_out"), " kn")} (${pct(d(s.T, "variacion"), true)})\n" +
                 "Viradas ${s.V.optInt("completas")} / ${s.V.optInt("fallidas")} · ${f1(d(s.V, "v_in"))} → ${f1(d(s.V, "v_out"), " kn")} (${pct(d(s.V, "variacion"), true)})\n" +
                 "Saltos " + if (s.acc) "${s.sc} / ${s.sf}" else "s/d", 13.5f, Color.rgb(200, 215, 230)))
+            val com = r.optString("comentario", "")
+            if (com.isNotEmpty()) c.addView(tv("“$com”", 13f, Color.rgb(255, 212, 0)).apply { setTypeface(typeface, Typeface.ITALIC) })
             box.addView(c)
         }
         AlertDialog.Builder(a)

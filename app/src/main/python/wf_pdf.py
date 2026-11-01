@@ -358,8 +358,12 @@ def informe(R, path, sat=True, fetch=None):
     p = PDF(); p.page()
     # ---------- página 1: datos clave + track completo + código de colores
     p.rect(0, 0, W, 78, fill=NAVY)
-    p.text(M, 34, f"Análisis Wingfoil — {R['fecha']}", 21, True, '#FFFFFF')
-    p.text(M, 54, f"Viento desde {R['viento']:.0f}°   ·   {R['hora_inicio']} a {R['hora_fin']}   ·   {R['origen']}", 9.5, False, '#BFD7EA')
+    titulo = R.get('nombre') or f"Análisis Wingfoil — {R['fecha']}"
+    p.text(M, 34, p.fit(titulo, 21, W - 2*M, True), 21, True, '#FFFFFF')
+    vkn = f" · {_n(R['viento_kn'], 0 if float(R['viento_kn']).is_integer() else 1)} kn" if R.get('viento_kn') is not None else ''
+    partes = ([R['fecha']] if R.get('nombre') else []) + ([R['lugar']] if R.get('lugar') else []) + \
+             [f"Viento desde {R['viento']:.0f}°{vkn}", f"{R['hora_inicio']} a {R['hora_fin']}", R['origen']]
+    p.text(M, 54, p.fit("   ·   ".join(partes), 9.5, W - 2*M), 9.5, False, '#BFD7EA')
     if R['excluidos']:
         p.text(M, 68, "Tramos excluidos: " + ", ".join(f"{a}–{b}" for a, b in R['excluidos']), 8, False, '#BFD7EA')
     T, V = R['por_tipo']['Trasluchada'], R['por_tipo']['Virada']
@@ -426,8 +430,15 @@ def informe(R, path, sat=True, fetch=None):
 
     # ---------- resumen detallado y tabla de maniobras
     p.page(); y = 50
+    if R.get('comentario'):
+        p.text(M, y, "Comentario", 15, True, NAVY); y += 10
+        lns = p.wrap(R['comentario'], 9.5, W - 2*M - 20)[:12]
+        p.rect(M, y, W - 2*M, 12 + 13*len(lns), fill='#FFF8DB'); p.rect(M, y, 3, 12 + 13*len(lns), fill='#FFD400')
+        for k, ln in enumerate(lns): p.text(M + 12, y + 15 + 13*k, ln, 9.5, False, '#222222')
+        y += 12 + 13*len(lns) + 26
     p.text(M, y, "Resumen de la sesión", 15, True, NAVY); y += 14
-    filas = [("Origen del archivo", R['origen']), ("Dirección del viento (desde)", f"{R['viento']:.0f}°"),
+    filas = ([("Nombre de la sesión", R['nombre'])] if R.get('nombre') else []) + ([("Lugar", R['lugar'])] if R.get('lugar') else []) + \
+            ([("Intensidad del viento", _n(R['viento_kn'], 1, ' kn'))] if R.get('viento_kn') is not None else []) + [("Origen del archivo", R['origen']), ("Dirección del viento (desde)", f"{R['viento']:.0f}°"),
              ("Distancia total recorrida", _n(R['distancia_km'], 2, ' km')), ("Tiempo total del recorrido", _n(R['tiempo_min'], 1, ' min')),
              ("Tiempo total de planeo (>7 nudos)", _n(R['planeo_min'], 1, ' min')), ("% del tiempo planeando", _pct(R['planeo_pct'])),
              ("Velocidad media de navegación en planeo (>7 nudos)", _n(R['vel_media_planeo'], 2, ' kn')),

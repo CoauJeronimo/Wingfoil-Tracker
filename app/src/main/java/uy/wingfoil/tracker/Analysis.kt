@@ -25,13 +25,14 @@ object Analysis {
         if (!Python.isStarted()) Python.start(AndroidPlatform(ctx.applicationContext))
     }
 
-    fun run(ctx: Context, dir: File, wind: Double, fecha: String, sections: Int, excludes: String, sat: Boolean): Result {
+    fun run(ctx: Context, dir: File, wind: Double, fecha: String, sections: Int, excludes: String, sat: Boolean,
+            nombre: String = "", lugar: String = "", vientoKn: String = "", comentario: String = ""): Result {
         ensurePython(ctx)
         Tiles.cacheDir = File(ctx.filesDir, "tiles").apply { mkdirs() }; Tiles.reset()
         val out = File(dir, "analisis")
         out.deleteRecursively()
         val s = Python.getInstance().getModule("runner")
-            .callAttr("run", dir.absolutePath, out.absolutePath, wind, fecha, sections, excludes, sat).toString()
+            .callAttr("run", dir.absolutePath, out.absolutePath, wind, fecha, sections, excludes, sat, nombre, lugar, vientoKn, comentario).toString()
         val j = JSONObject(s)
         if (!j.optBoolean("ok")) return Result(false, error = j.optString("error"), log = j.optString("log"))
         return Result(
@@ -41,10 +42,10 @@ object Analysis {
     }
 
     /** Copia un archivo a Descargas/WingFoil/<sub> y devuelve su Uri (para ver o compartir). */
-    fun saveToDownloads(ctx: Context, f: File, mime: String, sub: String = "Analisis"): Uri? {
+    fun saveToDownloads(ctx: Context, f: File, mime: String, sub: String = "Analisis", name: String = f.name): Uri? {
         val res = ctx.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, f.name)
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
             put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/WingFoil/" + sub)
             put(MediaStore.Downloads.IS_PENDING, 1)

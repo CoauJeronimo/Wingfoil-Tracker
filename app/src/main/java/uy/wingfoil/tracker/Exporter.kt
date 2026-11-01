@@ -34,6 +34,7 @@ object Exporter {
 
     /** Arma el ZIP (Location.csv + Metadata.csv + track.gpx) en Descargas/WingFoil y devuelve su Uri. */
     fun zipToDownloads(ctx: Context, dir: File): Uri? {
+        SessionInfo.deleteDownloads(ctx, dir, "zip")          // reemplaza el ZIP anterior de esta sesión
         val res = ctx.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, dir.name + ".zip")
@@ -60,6 +61,7 @@ object Exporter {
         values.clear()
         values.put(MediaStore.Downloads.IS_PENDING, 0)
         res.update(uri, values, null, null)
+        SessionInfo.addDownload(dir, uri, "zip")
         return uri
     }
 
@@ -68,7 +70,7 @@ object Exporter {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"Wingfoil &amp; PW Tracker\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
-        sb.append("<trk><name>").append(dir.name).append("</name><type>wingfoil</type><trkseg>\n")
+        sb.append("<trk><name>").append(SessionInfo.get(dir, "nombre").ifEmpty { dir.name }.replace("&", "&amp;").replace("<", "&lt;")).append("</name><type>wingfoil</type><trkseg>\n")
         var prev = 0L
         File(dir, "Location.csv").useLines { lines ->
             lines.drop(1).forEach { line ->

@@ -30,7 +30,7 @@ def _fila(R):
             R.get('planeo_pct'), R.get('vel_media_planeo'), R.get('vmax20'),
             T.get('completas'), T.get('fallidas'), T.get('v_in'), T.get('v_out'), T.get('variacion'),
             V.get('completas'), V.get('fallidas'), V.get('v_in'), V.get('v_out'), V.get('variacion'),
-            sc, sf, alto]
+            sc, sf, alto, R.get('nombre') or None, R.get('lugar') or None, R.get('viento'), R.get('viento_kn'), R.get('comentario') or None]
 
 COLS = [('Fecha', 12, None), ('Hora inicio', 11, None), ('Distancia (km)', 11, '0.00'), ('Duración (min)', 11, '0.0'),
         ('Planeo (min)', 11, '0.0'), ('% planeo', 10, '0.0%'), ('Vel. media planeo (kn)', 12, '0.00'), ('Vel. máx. 20 m (kn)', 12, '0.00'),
@@ -38,7 +38,8 @@ COLS = [('Fecha', 12, None), ('Hora inicio', 11, None), ('Distancia (km)', 11, '
         ('Trasl. completas vel. salida (kn)', 13, '0.00'), ('Trasl. completas variación', 12, '+0.0%;[Red]-0.0%;0.0%'),
         ('Viradas completas', 11, '0'), ('Viradas fallidas', 11, '0'), ('Viradas completas vel. entrada (kn)', 13, '0.00'),
         ('Viradas completas vel. salida (kn)', 13, '0.00'), ('Viradas completas variación', 12, '+0.0%;[Red]-0.0%;0.0%'),
-        ('Saltos completos', 11, '0'), ('Saltos fallidos', 11, '0'), ('Salto más alto (m)', 11, '0.00')]
+        ('Saltos completos', 11, '0'), ('Saltos fallidos', 11, '0'), ('Salto más alto (m)', 11, '0.00'),
+        ('Nombre', 22, None), ('Lugar', 16, None), ('Viento desde (°)', 10, '0'), ('Viento (kn)', 10, '0.0'), ('Comentario', 40, None)]
 
 def exportar(sessions_root, out_path):
     S = _leer(sessions_root)
@@ -73,7 +74,7 @@ def exportar(sessions_root, out_path):
         f_ = (f'=IFERROR(SUMPRODUCT({rng(col)},{rng(wc)})/SUMPRODUCT(--({rng(col)}<>""),{rng(wc)}),"s/d")')
         x = ws.cell(rt, c, f_); x.font = B; x.number_format = COLS[c-1][2]
     x = ws.cell(rt, 21, f'=IFERROR(MAX({L(21)}{r0}:{L(21)}{rl}),"s/d")'); x.font = B; x.number_format = '0.00'
-    for c in range(1, 22):
+    for c in range(1, len(COLS) + 1):
         ws.cell(rt, c).fill = PatternFill('solid', fgColor='DDEBF7'); ws.cell(rt, c).alignment = Alignment(horizontal='center'); ws.cell(rt, c).border = bd
     ws.cell(rt + 1, 1, '% de éxito').font = B
     ws.cell(rt + 1, 9, f'=IFERROR(I{rt}/(I{rt}+J{rt}),"s/d")').number_format = '0.0%'

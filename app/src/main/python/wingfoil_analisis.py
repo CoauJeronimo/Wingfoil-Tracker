@@ -28,6 +28,10 @@ ap.add_argument('--utc-offset', type=float, default=-3.0)
 ap.add_argument('--exclude', nargs='*', default=[])
 ap.add_argument('--json', help='opcional: guarda los resultados en JSON (lo usa la app para el PDF)')
 ap.add_argument('--salto-min', type=float, default=1.0, help='tiempo mínimo en vuelo (s) para contar un salto (por defecto 1.0)')
+ap.add_argument('--nombre', default='', help='opcional: nombre de la sesión')
+ap.add_argument('--lugar', default='', help='opcional: lugar de la sesión')
+ap.add_argument('--viento-kn', type=float, help='opcional: intensidad del viento (nudos)')
+ap.add_argument('--comentario', default='', help='opcional: comentario libre')
 ap.add_argument('--salto-h-min', type=float, default=0.5, help='altura mínima estimada (m) para contar un salto (por defecto 0.5)')
 A = ap.parse_args()
 K = 1.9438444924406            # m/s -> nudos
@@ -375,7 +379,10 @@ for a, b in zip(track, track[1:]):
 if len(cc) > 1: segs.append((cs, cb, cc))
 icons = {('Virada', 'Completa'): ('grn-stars', 'Virada COMPLETA (sin caída)'), ('Virada', 'Fallida'): ('red-stars', 'Virada FALLIDA (con caída)'),
          ('Trasluchada', 'Completa'): ('grn-circle', 'Trasluchada COMPLETA (sin caída)'), ('Trasluchada', 'Fallida'): ('orange-circle', 'Trasluchada FALLIDA (con caída)')}
-k_ = ['<?xml version="1.0" encoding="UTF-8"?>', '<kml xmlns="http://www.opengis.net/kml/2.2">', '<Document>', f'<name>Track Wingfoil {FECHA}</name>']
+_vkn = f" · {A.viento_kn:g} kn" if A.viento_kn is not None else ''
+_desc = " · ".join(x for x in (FECHA, A.lugar, f"Viento desde {VIENTO}{_vkn}") if x) + (f"<br/>{esc(A.comentario)}" if A.comentario else '')
+k_ = ['<?xml version="1.0" encoding="UTF-8"?>', '<kml xmlns="http://www.opengis.net/kml/2.2">', '<Document>',
+      f'<name>{esc(A.nombre) if A.nombre else "Track Wingfoil " + FECHA}</name>', f'<description><![CDATA[{_desc}]]></description>']
 for b, (col, l) in binfo.items(): k_.append(f'<Style id="line{b}"><LineStyle><color>{col}</color><width>4</width></LineStyle></Style>')
 for key, (ic, _) in icons.items(): k_.append(f'<Style id="{ic}"><IconStyle><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/{ic}.png</href></Icon></IconStyle></Style>')
 for s in range(NS):
@@ -448,10 +455,14 @@ for r, m in enumerate(M, 5):
 for col, w in zip('ABCDEFGHIJK', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 26]): wm.column_dimensions[col].width = w
 wm.freeze_panes = 'A5'
 wr = wb.create_sheet('Resumen', 0); wr.sheet_view.showGridLines = False
-wr['B2'] = f'Resumen del recorrido — Wingfoil ({FECHA})'; wr['B2'].font = Font(name=F, bold=True, size=14)
+wr['B2'] = f'Resumen del recorrido — {A.nombre} ({FECHA})' if A.nombre else f'Resumen del recorrido — Wingfoil ({FECHA})'; wr['B2'].font = Font(name=F, bold=True, size=14)
 last = max(5, 4+len(M))
 cnt = lambda ty, rs: f'=COUNTIFS(Maniobras!B5:B{last},"{ty}",Maniobras!C5:C{last},"{rs}")'
-rows = [('Origen del archivo', ORIGEN_TXT, None),
+rows = [*([('Nombre de la sesión', A.nombre, None)] if A.nombre else []),
+        *([('Lugar', A.lugar, None)] if A.lugar else []),
+        *([('Intensidad del viento (kn)', A.viento_kn, '0.0')] if A.viento_kn is not None else []),
+        *([('Comentario', A.comentario, None)] if A.comentario else []),
+        ('Origen del archivo', ORIGEN_TXT, None),
         ('Dirección del viento (desde)', VIENTO, None), ('Distancia total recorrida (km)', f'=Track!E{LR}/1000', '0.00'),
         ('Tiempo total del recorrido (min)', f'=SUM(Track!F3:F{LR})/60', '0.0'), ('Tiempo total de planeo, >7 nudos (min)', f'=SUM(Track!H3:H{LR})/60', '0.0'),
         ('% del tiempo planeando', '={plan}/{tiempo}', '0.0%'),
@@ -520,6 +531,7 @@ if A.json:
     paso = max(1, n // 5000)
     res = {
         'fecha': FECHA, 'origen': ORIGEN_TXT, 'viento': WIND_FROM, 'secciones': NS,
+        'nombre': A.nombre, 'lugar': A.lugar, 'viento_kn': A.viento_kn, 'comentario': A.comentario,
         'hora_inicio': hora(t[0]), 'hora_fin': hora(t[-1]),
         'distancia_km': cd[-1]/1000, 'tiempo_min': tt/60, 'planeo_min': plan/60,
         'planeo_pct': (plan/tt) if tt else 0, 'vel_media_planeo': navv,
