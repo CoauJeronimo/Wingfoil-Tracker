@@ -117,6 +117,11 @@ class MainActivity : Activity() {
         btnBattery.setOnClickListener { askBattery() }
         root.addView(btnBattery)
 
+        root.addView(button("🩺  Test de permisos", card, Color.WHITE).apply {
+            textSize = 15f
+            setOnClickListener { Checks.mostrar(this@MainActivity) }
+        })
+
         root.addView(button("⚙  Ajustes de la app (batería sin restricciones)", card, Color.WHITE).apply {
             textSize = 15f
             setOnClickListener {
