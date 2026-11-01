@@ -396,7 +396,7 @@ if A.json:
         'hora_inicio': hora(t[0]), 'hora_fin': hora(t[-1]),
         'distancia_km': cd[-1]/1000, 'tiempo_min': tt/60, 'planeo_min': plan/60,
         'planeo_pct': (plan/tt) if tt else 0, 'vel_media_planeo': navv,
-        'vmax20': VM20, 'vmax20_hora': hora(t[VM20a]), 'vmax20_lat': lat[VM20a], 'vmax20_lon': lon[VM20a],
+        'vmax20': VM20, 'vmax20_hora': hora(t[VM20a]), 'vmax20_lat': lat[VM20a], 'vmax20_lon': lon[VM20a], 'vmax20_cd': cd[VM20a],
         'cortes': N_CORTES, 'sin_senal_min': T_SIN/60, 'descartados_precision': n_acc, 'max_acc': MAXACC,
         'excluidos': [[hora(a_), hora(b_)] for a_, b_ in EXC],
         'por_tipo': por_tipo,
@@ -404,8 +404,9 @@ if A.json:
                        'transcurrido': f"{int((m['t']-T0)//60):02d}:{int((m['t']-T0)%60):02d}", 'hora': hora(m['t']),
                        'lat': m['lat'], 'lon': m['lon'], 'v_in': m['v_in'], 'v_out': m['v_out'],
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
-                       'nota': m['nota']} for m in M],
-        'track': [[round(lat[i], 7), round(lon[i], 7), round(v[i], 2), seg[i]] for i in range(0, n, paso)],
+                       'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
+        'track': [[round(lat[i], 7), round(lon[i], 7), round(v[i], 2), seg[i], round(cd[i], 1), round(t[i], 1)] for i in range(0, n, paso)],
+        'dist_total_m': cd[-1], 'epoch': EP, 'utc': UTC,
         'kml': os.path.basename(kml_path), 'xlsx': os.path.basename(xlsx_path),
     }
     with open(A.json, 'w', encoding='utf-8') as fj: json.dump(res, fj, ensure_ascii=False)

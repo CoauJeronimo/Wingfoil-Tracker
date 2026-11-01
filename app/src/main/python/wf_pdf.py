@@ -199,26 +199,49 @@ def _arrow(p, cx, cy, deg_to, L, col, lw=1.6):
         ang = math.atan2(-dy, -dx) + s_*b
         p.polyline([(x1, y1), (x1 + h*math.cos(ang), y1 + h*math.sin(ang))], col, lw)
 
-def mapa(p, R, x, y, w, h, sat=True, fetch=None):
-    tr = R['track']
-    p.rect(x, y, w, h, fill='#0E2A47')
-    if len(tr) < 2: return False
-    lats = [q[0] for q in tr] + [m['lat'] for m in R['maniobras']]
-    lons = [q[1] for q in tr] + [m['lon'] for m in R['maniobras']]
-    pad = 22
-    # zoom: el más alto con el que el recorrido entra en ~2 píxeles por punto del mapa
+def _zoom_for(lats, lons, w, h, pad, maxtiles=90):
     z = 18
     while z > 3:
         x0, y0 = _merc(max(lats), min(lons), z); x1, y1 = _merc(min(lats), max(lons), z)
-        if (x1 - x0) <= (w - 2*pad) * 2.2 and (y1 - y0) <= (h - 2*pad) * 2.2: break
+        fits = (x1 - x0) <= (w - 2*pad) * 2.2 and (y1 - y0) <= (h - 2*pad) * 2.2
+        if fits:
+            s_ = min((w - 2*pad) / max(x1 - x0, 1e-9), (h - 2*pad) / max(y1 - y0, 1e-9))
+            ntiles = (w/s_/256 + 2) * (h/s_/256 + 2)
+            if ntiles <= maxtiles: break
         z -= 1
+    return z
+
+def _label_place(cx, cy, tw, th, taken, r=4.5):
+    """Elige dónde poner la etiqueta para no pisar otras (derecha, izquierda, arriba, abajo, diagonales)."""
+    cands = [(cx + r + 1.5, cy - th/2), (cx - r - 1.5 - tw, cy - th/2), (cx - tw/2, cy - r - 1.5 - th),
+             (cx - tw/2, cy + r + 1.5), (cx + r, cy - r - th), (cx + r, cy + r), (cx - r - tw, cy - r - th), (cx - r - tw, cy + r)]
+    def free(bx, by):
+        return all(bx + tw < ax or ax + aw < bx or by + th < ay or ay + ah < by for ax, ay, aw, ah in taken)
+    for bx, by in cands:
+        if free(bx, by): return bx, by
+    return cands[0]
+
+def mapa(p, R, x, y, w, h, sat=True, fetch=None, rango=None, numeros=False):
+    """Dibuja el mapa. rango=(d0, d1) en metros recorridos: se encuadra solo esa parte del track
+    (el resto queda tenue de fondo). numeros=True: etiqueta cada maniobra con su N°."""
+    tr = R['track']
+    p.rect(x, y, w, h, fill='#0E2A47')
+    if len(tr) < 2: return False
+    def dentro(d): return rango is None or rango[0] <= d <= rango[1]
+    foco = [q for q in tr if dentro(q[4])]
+    mans = [m for m in R['maniobras'] if dentro(m['cd'])]
+    if len(foco) < 2: foco = tr
+    lats = [q[0] for q in foco] + [m['lat'] for m in mans]
+    lons = [q[1] for q in foco] + [m['lon'] for m in mans]
+    pad = 24
+    z = _zoom_for(lats, lons, w, h, pad)
     x0, y0 = _merc(max(lats), min(lons), z); x1, y1 = _merc(min(lats), max(lons), z)
     s = min((w - 2*pad) / max(x1 - x0, 1e-9), (h - 2*pad) / max(y1 - y0, 1e-9))     # puntos por píxel
     ox = x + pad + ((w - 2*pad) - (x1 - x0)*s)/2 - x0*s
     oy = y + pad + ((h - 2*pad) - (y1 - y0)*s)/2 - y0*s
     def P(la, lo):
         mx, my = _merc(la, lo, z); return (ox + mx*s, oy + my*s)
-    # fondo satelital
+    p.clip_begin(x, y, w, h)
     con_sat = False
     if sat:
         fetch = fetch or _fetch_default
@@ -226,46 +249,55 @@ def mapa(p, R, x, y, w, h, sat=True, fetch=None):
         ty0 = int(((y - oy)/s) // 256); ty1 = int(((y + h - oy)/s) // 256)
         nmax = 2**z
         tiles = [(tx, ty) for ty in range(max(0, ty0), min(nmax-1, ty1)+1) for tx in range(tx0, tx1+1)]
-        if len(tiles) <= 90:
-            p.clip_begin(x, y, w, h)
-            ok = 0
-            for tx, ty in tiles:
-                d = fetch(TILE_URL.format(z=z, x=tx % nmax, y=ty))
-                nm = p.add_jpeg(d) if d else None
-                if not nm: continue
-                p.image(nm, ox + tx*256*s, oy + ty*256*s, 256*s + 0.4, 256*s + 0.4); ok += 1
-            if ok:
-                con_sat = True
-                p.shade(x, y, w, h, '#000000', 0.28)     # oscurece un poco para que resalte el track
-            p.clip_end()
-    # track por color (sin unir segmentos distintos), con borde oscuro para que se lea sobre la foto
-    tramos = []; cur, cb = [], None
-    for a, b in zip(tr, tr[1:]):
-        if a[3] != b[3]:
-            if len(cur) > 1: tramos.append((cb, cur))
-            cur, cb = [], None; continue
-        bu = _bk((a[2]+b[2])/2)
-        if bu != cb:
-            if len(cur) > 1: tramos.append((cb, cur))
-            cur, cb = [P(a[0], a[1])], bu
-        cur.append(P(b[0], b[1]))
-    if len(cur) > 1: tramos.append((cb, cur))
+        ok = 0
+        for tx, ty in tiles:
+            d = fetch(TILE_URL.format(z=z, x=tx % nmax, y=ty))
+            nm = p.add_jpeg(d) if d else None
+            if not nm: continue
+            p.image(nm, ox + tx*256*s, oy + ty*256*s, 256*s + 0.4, 256*s + 0.4); ok += 1
+        if ok:
+            con_sat = True
+            p.shade(x, y, w, h, '#000000', 0.28)     # oscurece un poco para que resalte el track
+    # tramos de color (sin unir segmentos distintos)
+    def tramos(pts, tenue):
+        out = []; cur, cb = [], None
+        for a, b in zip(pts, pts[1:]):
+            if a[3] != b[3] or (not tenue and not (dentro(a[4]) and dentro(b[4]))) or (tenue and dentro(a[4]) and dentro(b[4])):
+                if len(cur) > 1: out.append((cb, cur))
+                cur, cb = [], None; continue
+            bu = -1 if tenue else _bk((a[2]+b[2])/2)
+            if bu != cb:
+                if len(cur) > 1: out.append((cb, cur))
+                cur, cb = [P(a[0], a[1])], bu
+            cur.append(P(b[0], b[1]))
+        if len(cur) > 1: out.append((cb, cur))
+        return out
+    if rango is not None:
+        for _, pts in tramos(tr, True): p.polyline(pts, '#A9B8C9', 0.6)
+    vivos = tramos(tr, False)
     if con_sat:
-        for cb_, pts in tramos: p.polyline(pts, '#111111', 2.2)
-    for cb_, pts in tramos: p.polyline(pts, SPD[cb_][0], 1.1)
+        for _, pts in vivos: p.polyline(pts, '#111111', 2.4 if rango else 2.2)
+    for cb_, pts in vivos: p.polyline(pts, SPD[cb_][0], 1.4 if rango else 1.1)
     for a, b in zip(tr, tr[1:]):
-        if a[3] != b[3]:
+        if a[3] != b[3] and dentro(a[4]):
             for q in (a, b):
                 px, py = P(q[0], q[1]); p.circle(px, py, 1.6, fill='#9AA9BC')
-    # maniobras
-    lbl = len(R['maniobras']) <= 45
-    for m in R['maniobras']:
-        px, py = P(m['lat'], m['lon']); _marker(p, px, py, m['tipo'], m['resultado'])
-        if lbl:
-            num = m['nombre'].split('#')[1].split(' ')[0]
-            p.text(px+4.5, py-3, ('T' if m['tipo'] == 'Trasluchada' else 'V') + num + ('f' if m['resultado'] == 'Fallida' else ''), 5.5, True, '#FFFFFF')
-    px, py = P(R['vmax20_lat'], R['vmax20_lon']); _star(p, px, py, 6.5, '#B44CFF')
-    # norte, viento y escala (con fondo para que se lean sobre la foto)
+    # maniobras (y números)
+    r_ = 4.6 if numeros else 3.6
+    pos = []
+    for m in mans:
+        px, py = P(m['lat'], m['lon']); pos.append((m, px, py)); _marker(p, px, py, m['tipo'], m['resultado'], r_)
+    if dentro(R['vmax20_cd']):
+        px, py = P(R['vmax20_lat'], R['vmax20_lon']); _star(p, px, py, 7 if numeros else 6.5, '#B44CFF')
+    if numeros:
+        taken = [(px - r_, py - r_, 2*r_, 2*r_) for _, px, py in pos]
+        for m, px, py in pos:
+            t_ = str(m['n']); fs = 7.5; tw = text_width(t_, fs, True) + 4; th = 9
+            bx, by = _label_place(px, py, tw, th, taken, r_)
+            taken.append((bx, by, tw, th))
+            p.rect(bx, by, tw, th, fill='#FFFFFF', stroke=MK[(m['tipo'], m['resultado'])], lw=0.8)
+            p.text(bx + tw/2, by + 7, t_, fs, True, '#0B2545', 'center')
+    # norte, viento y escala
     p.rect(x + w - 50, y + 8, 44, 112, fill='#0E2A47')
     nx, ny = x + w - 28, y + 34
     _arrow(p, nx, ny, 0, 22, '#FFFFFF', 1.4); p.text(nx, ny - 15, 'N', 8, True, '#FFFFFF', 'center')
@@ -275,25 +307,44 @@ def mapa(p, R, x, y, w, h, sat=True, fetch=None):
     p.text(wx, wy - 20, "Viento", 6.5, True, '#7FDBFF', 'center')
     lat_c = sum(lats)/len(lats)
     mpp = 156543.03392 * math.cos(math.radians(lat_c)) / 2**z / s     # metros por punto
-    for nice in (50, 100, 200, 250, 500, 1000, 2000, 5000):
-        if nice/mpp > w*0.18: break
+    for nice in (20, 50, 100, 200, 250, 500, 1000, 2000, 5000):
+        if nice/mpp > w*0.15: break
     L = nice/mpp; bx, by = x + 14, y + h - 16
     p.rect(bx - 6, by - 14, L + 12, 22, fill='#0E2A47')
     p.rect(bx, by, L, 3, fill='#FFFFFF')
     p.text(bx, by - 4, f"{nice} m" if nice < 1000 else f"{nice//1000} km", 7, True, '#FFFFFF')
     if con_sat:
         p.text(x + w - 4, y + h - 4, ATRIB, 5, False, '#FFFFFF', 'right')
+    p.clip_end()
     return con_sat
 
+def _leyenda(p, y, completa=True):
+    lx = M
+    if completa:
+        p.text(lx, y, "Velocidad:", 7.5, True, NAVY); lx += 44
+        for col, l in SPD:
+            p.rect(lx, y - 6, 14, 5, fill=col, stroke='#8899AA', lw=0.4); p.text(lx + 18, y, l, 7.5, False, GRIS)
+            lx += 22 + text_width(l, 7.5) + 10
+        y += 14; lx = M
+    p.text(lx, y, "Maniobras:", 7.5, True, NAVY); lx += 44
+    for (ty, rs), lab in ((('Trasluchada', 'Completa'), 'Trasluchada completa'), (('Trasluchada', 'Fallida'), 'Trasluchada fallida'),
+                          (('Virada', 'Completa'), 'Virada completa'), (('Virada', 'Fallida'), 'Virada fallida')):
+        _marker(p, lx + 4, y - 3, ty, rs, 3.4); p.text(lx + 11, y, lab, 7.5, False, GRIS); lx += 18 + text_width(lab, 7.5) + 8
+    _star(p, lx + 5, y - 3, 5, '#B44CFF'); p.text(lx + 13, y, "Vel. máx. 20 m", 7.5, False, GRIS)
+    return y
+
 def informe(R, path, sat=True, fetch=None):
+    for i, m in enumerate(R['maniobras'], 1): m['n'] = i
+    tr = R['track']
+    if 'vmax20_cd' not in R:
+        R['vmax20_cd'] = min(tr, key=lambda q: (q[0]-R['vmax20_lat'])**2 + (q[1]-R['vmax20_lon'])**2)[4] if tr else 0
     p = PDF(); p.page()
-    # encabezado
+    # ---------- página 1: datos clave + track completo + código de colores
     p.rect(0, 0, W, 78, fill=NAVY)
     p.text(M, 34, f"Análisis Wingfoil — {R['fecha']}", 21, True, '#FFFFFF')
     p.text(M, 54, f"Viento desde {R['viento']:.0f}°   ·   {R['hora_inicio']} a {R['hora_fin']}   ·   {R['origen']}", 9.5, False, '#BFD7EA')
     if R['excluidos']:
         p.text(M, 68, "Tramos excluidos: " + ", ".join(f"{a}–{b}" for a, b in R['excluidos']), 8, False, '#BFD7EA')
-    # tarjetas
     T, V = R['por_tipo']['Trasluchada'], R['por_tipo']['Virada']
     tiles = [("Distancia", _n(R['distancia_km'], 2, ' km'), ''),
              ("Tiempo", _n(R['tiempo_min'], 1, ' min'), ''),
@@ -306,31 +357,41 @@ def informe(R, path, sat=True, fetch=None):
     tw = (W - 2*M - 3*8) / 4; th = 52
     for i, (l, v_, sub) in enumerate(tiles):
         cx = M + (i % 4)*(tw + 8); cy = 92 + (i // 4)*(th + 8)
-        p.rect(cx, cy, tw, th, fill=CLARO)
-        p.rect(cx, cy, 3, th, fill=ACC)
+        p.rect(cx, cy, tw, th, fill=CLARO); p.rect(cx, cy, 3, th, fill=ACC)
         p.text(cx + 10, cy + 14, l.upper(), 7, True, GRIS)
         p.text(cx + 10, cy + 33, v_, 16, True, NAVY)
         if sub: p.text(cx + 10, cy + 45, p.fit(sub, 6.8, tw - 14), 6.8, False, GRIS)
-    # mapa
     my = 92 + 2*(th + 8) + 4; mh = H - my - 80
     con_sat = mapa(p, R, M, my, W - 2*M, mh, sat, fetch)
-    # leyenda
-    ly = my + mh + 16; lx = M
-    p.text(lx, ly, "Velocidad:", 7.5, True, NAVY); lx += 44
-    for col, l in SPD:
-        p.rect(lx, ly - 6, 14, 5, fill=col, stroke='#8899AA', lw=0.4); p.text(lx + 18, ly, l, 7.5, False, GRIS)
-        lx += 22 + text_width(l, 7.5) + 10
-    ly += 14; lx = M
-    p.text(lx, ly, "Maniobras:", 7.5, True, NAVY); lx += 44
-    for (ty, rs), lab in ((('Trasluchada', 'Completa'), 'Trasluchada completa'), (('Trasluchada', 'Fallida'), 'Trasluchada fallida'),
-                          (('Virada', 'Completa'), 'Virada completa'), (('Virada', 'Fallida'), 'Virada fallida')):
-        _marker(p, lx + 4, ly - 3, ty, rs, 3.4); p.text(lx + 11, ly, lab, 7.5, False, GRIS); lx += 18 + text_width(lab, 7.5) + 8
-    _star(p, lx + 5, ly - 3, 5, '#B44CFF'); p.text(lx + 13, ly, "Vel. máx. 20 m", 7.5, False, GRIS)
-    nota = "Etiquetas del mapa: T = trasluchada, V = virada, número de su grupo, f = fallida (como en el KML y la tabla)." if len(R['maniobras']) <= 45 else "Los nombres de cada maniobra están en la tabla y en el KML."
+    ly = _leyenda(p, my + mh + 16)
+    nota = f"Track completo. En las páginas siguientes, el track en {R['secciones']} secciones con cada maniobra numerada (N° de la tabla)."
     if sat and not con_sat: nota += "  Sin imagen satelital (no había conexión a internet)."
     p.text(M, ly + 14, nota, 6.8, False, GRIS)
 
-    # ---------- página 2: resumen detallado y maniobras
+    # ---------- una página por sección, con las maniobras numeradas
+    NS = max(1, int(R['secciones'])); D = R['dist_total_m'] or (tr[-1][4] if tr else 0); sl = D / NS
+    for k in range(NS):
+        d0, d1 = k*sl, (k+1)*sl if k < NS-1 else D + 1
+        pts = [q for q in tr if d0 <= q[4] <= d1]
+        ms = [m for m in R['maniobras'] if d0 <= m['cd'] <= d1]
+        p.page()
+        p.rect(0, 0, W, 58, fill=NAVY)
+        p.text(M, 28, f"Sección {k+1} de {NS}", 18, True, '#FFFFFF')
+        h0 = h1 = ''
+        if pts and 'epoch' in R:
+            import datetime as _dt
+            hf = lambda t_: (_dt.datetime.fromtimestamp(R['epoch'] + t_, _dt.timezone.utc) + _dt.timedelta(hours=R['utc'])).strftime('%H:%M:%S')
+            h0, h1 = hf(pts[0][5]), hf(pts[-1][5])
+        nT = [m for m in ms if m['tipo'] == 'Trasluchada']; nV = [m for m in ms if m['tipo'] == 'Virada']
+        p.text(M, 46, f"{d0/1000:.1f} a {min(d1, D)/1000:.1f} km".replace('.', ',') + (f"   ·   {h0} a {h1}" if h0 else '') +
+               f"   ·   Trasluchadas {sum(m['resultado']=='Completa' for m in nT)} completas / {sum(m['resultado']=='Fallida' for m in nT)} fallidas"
+               f"   ·   Viradas {sum(m['resultado']=='Completa' for m in nV)} / {sum(m['resultado']=='Fallida' for m in nV)}", 8.5, False, '#BFD7EA')
+        top = 70; mh2 = H - top - 74
+        mapa(p, R, M, top, W - 2*M, mh2, sat, fetch, rango=(d0, d1), numeros=True)
+        ly = _leyenda(p, top + mh2 + 16)
+        p.text(M, ly + 14, "El número de cada maniobra es el N° de la tabla de maniobras. En gris, el resto del track.", 6.8, False, GRIS)
+
+    # ---------- resumen detallado y tabla de maniobras
     p.page(); y = 50
     p.text(M, y, "Resumen de la sesión", 15, True, NAVY); y += 14
     filas = [("Origen del archivo", R['origen']), ("Dirección del viento (desde)", f"{R['viento']:.0f}°"),
@@ -353,15 +414,15 @@ def informe(R, path, sat=True, fetch=None):
         p.text(W - M - 6, y + 10.5, p.fit(v_, 8.5, 230, True), 8.5, True, '#C00000' if neg else NAVY, 'right')
         y += 15
     y += 22
-    cols = [("Nombre", 128, 'left'), ("Hora", 50, 'center'), ("Transc.", 42, 'center'), ("Entrada", 50, 'right'),
-            ("Salida", 50, 'right'), ("Variación", 54, 'right'), ("Observación", 0, 'left')]
+    cols = [("N°", 24, 'center'), ("Nombre (KML)", 122, 'left'), ("Sec.", 26, 'center'), ("Hora", 46, 'center'), ("Transc.", 38, 'center'),
+            ("Entrada", 46, 'right'), ("Salida", 46, 'right'), ("Variación", 50, 'right'), ("Observación", 0, 'left')]
     used = sum(c[1] for c in cols); cols[-1] = (cols[-1][0], W - 2*M - used, 'left')
     def head(y):
         p.text(M, y, "Maniobras", 15, True, NAVY); y += 10
         p.rect(M, y, W - 2*M, 18, fill=NAVY); xx = M
         for nm, cw, al in cols:
             tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
-            p.text(tx, y + 12, nm + (" (kn)" if nm in ("Entrada", "Salida") else ""), 7.5, True, '#FFFFFF', al); xx += cw
+            p.text(tx, y + 12, nm + (" kn" if nm in ("Entrada", "Salida") else ""), 7.3, True, '#FFFFFF', al); xx += cw
         return y + 18
     MS = R['maniobras']
     if not MS:
@@ -373,12 +434,13 @@ def informe(R, path, sat=True, fetch=None):
             if y > H - 50:
                 p.page(); y = head(50)
             p.rect(M, y, W - 2*M, 14, fill=FILL[(m['tipo'], m['resultado'])])
-            vals = [m['nombre'], m['hora'], m['transcurrido'], _n(m['v_in'], 1), _n(m['v_out'], 1), _pct(m['variacion'], True), m['nota']]
+            seccion = min(int(m['cd'] // sl) + 1, NS) if sl else 1
+            vals = [str(m['n']), m['nombre'], str(seccion), m['hora'], m['transcurrido'], _n(m['v_in'], 1), _n(m['v_out'], 1), _pct(m['variacion'], True), m['nota']]
             xx = M
             for (nm, cw, al), val in zip(cols, vals):
                 tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
                 col = '#C00000' if nm == 'Variación' and val.startswith('-') else '#222222'
-                p.text(tx, y + 10, p.fit(val, 7.8, cw - 8), 7.8, nm == 'Nombre', col, al); xx += cw
+                p.text(tx, y + 10, p.fit(val, 7.8, cw - 8), 7.8, nm in ('N°', 'Nombre (KML)'), col, al); xx += cw
             y += 14
         y += 16
         if y < H - 60:
