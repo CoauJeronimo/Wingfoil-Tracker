@@ -9,11 +9,9 @@ import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import org.json.JSONObject
 import java.io.File
-import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.zip.ZipInputStream
 
 /** Corre el "Análisis WingFoil Completo" (wingfoil_analisis.py + PDF) con Python dentro de la app. */
 object Analysis {
@@ -63,44 +61,5 @@ object Analysis {
         val sm = Exporter.summary(dir)
         val ms = if (sm.points > 0) sm.firstMs else dir.lastModified()
         return SimpleDateFormat("dd-MM-yyyy", Locale.US).format(Date(ms))
-    }
-
-    /**
-     * Importa un ZIP de Sensor Logger (o de Wingfoil Tracker): extrae Location.csv y Metadata.csv
-     * a una sesión nueva. Devuelve la carpeta creada o null si el ZIP no trae Location.csv.
-     */
-    fun importZip(ctx: Context, input: InputStream, displayName: String?): File? {
-        val tmp = File(ctx.cacheDir, "import_" + System.currentTimeMillis()).apply { mkdirs() }
-        var hasLoc = false
-        ZipInputStream(input.buffered()).use { z ->
-            var e = z.nextEntry
-            while (e != null) {
-                val base = e.name.substringAfterLast('/').lowercase(Locale.US)
-                val target = when (base) {
-                    "location.csv" -> "Location.csv"
-                    "metadata.csv" -> "Metadata.csv"
-                    "totalacceleration.csv" -> "TotalAcceleration.csv"
-                    else -> null
-                }
-                if (!e.isDirectory && target != null) {
-                    File(tmp, target).outputStream().use { z.copyTo(it) }
-                    if (target == "Location.csv") hasLoc = true
-                }
-                e = z.nextEntry
-            }
-        }
-        if (!hasLoc) { tmp.deleteRecursively(); return null }
-        val origen = if (File(tmp, "Metadata.csv").let { it.exists() && it.readText().contains("WingfoilTracker", true) })
-            "WingFoil" else "SensorLogger"
-        val sm = Exporter.summary(tmp)
-        val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
-            .format(Date(if (sm.points > 0) sm.firstMs else System.currentTimeMillis()))
-        var dest = File(TrackService.sessionsRoot(ctx), "${origen}_$stamp")
-        var k = 2
-        while (dest.exists()) { dest = File(TrackService.sessionsRoot(ctx), "${origen}_${stamp}_$k"); k++ }
-        if (!tmp.renameTo(dest)) {
-            dest.mkdirs(); tmp.listFiles()?.forEach { it.copyTo(File(dest, it.name)) }; tmp.deleteRecursively()
-        }
-        return dest
     }
 }

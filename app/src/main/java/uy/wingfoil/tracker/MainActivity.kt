@@ -36,7 +36,6 @@ import java.util.Locale
 
 class MainActivity : Activity() {
 
-    companion object { private const val REQ_IMPORT = 41 }
 
     private lateinit var tvTime: TextView
     private lateinit var tvState: TextView
@@ -125,29 +124,11 @@ class MainActivity : Activity() {
             }
         })
 
-        root.addView(button("📥  Importar ZIP de Sensor Logger", card, Color.WHITE).apply {
-            textSize = 15f
-            setOnClickListener {
-                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
-                }
-                try { startActivityForResult(i, REQ_IMPORT) } catch (e: Exception) { toast("No se pudo abrir el selector de archivos") }
-            }
-        })
-
         root.addView(text(14f, mut, true).apply {
             text = "SESIONES GUARDADAS"; setPadding(0, dp(20), 0, dp(6))
         })
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(list)
-
-        root.addView(text(12f, mut).apply {
-            setPadding(0, dp(16), 0, 0)
-            text = "Con la grabación iniciada podés apagar la pantalla. El track se guarda punto a punto; " +
-                "si se pierde la señal bajo el agua, el GPS se reintenta solo hasta que vuelve.\n" +
-                "Compartir guarda el ZIP en Descargas/WingFoil (Location.csv + Metadata.csv formato Sensor Logger + track.gpx)."
-        })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
     }
@@ -313,25 +294,6 @@ class MainActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
-
-    /* ---------- Importar ZIP de Sensor Logger ---------- */
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_IMPORT || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        val wait = AlertDialog.Builder(this).setMessage("Importando…").setCancelable(false).show()
-        Thread {
-            val dir = try {
-                contentResolver.openInputStream(uri)?.use { Analysis.importZip(this, it, uri.lastPathSegment) }
-            } catch (e: Exception) { null }
-            runOnUiThread {
-                wait.dismiss()
-                if (dir == null) toast("Ese archivo no es un ZIP con Location.csv")
-                else { toast("Sesión importada: ${dir.name}"); buildList() }
-            }
-        }.start()
-    }
 
     /* ---------- Análisis WingFoil Completo ---------- */
     private fun field(hint: String, value: String, type: Int): EditText = EditText(this).apply {
