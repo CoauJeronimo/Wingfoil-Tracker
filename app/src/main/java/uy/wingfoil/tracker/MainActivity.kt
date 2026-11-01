@@ -129,6 +129,10 @@ class MainActivity : Activity() {
             }
         })
 
+        root.addView(button("📈  Histórico de sesiones", Color.rgb(255, 212, 0)).apply {
+            setOnClickListener { History.mostrar(this@MainActivity) }
+        })
+
         root.addView(text(14f, mut, true).apply {
             text = "SESIONES GUARDADAS"; setPadding(0, dp(20), 0, dp(6))
         })
