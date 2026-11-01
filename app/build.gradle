@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
 }
 
 android {
@@ -11,8 +12,11 @@ android {
         applicationId 'uy.wingfoil.tracker'
         minSdk 29          // Android 10 o superior
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '1.1'
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
 
     // Clave fija: permite instalar versiones nuevas encima sin perder las sesiones grabadas
@@ -45,5 +49,16 @@ android {
     lint {
         abortOnError false
         checkReleaseBuilds false
+    }
+}
+
+// Python dentro de la app: corre wingfoil_analisis.py tal cual (app/src/main/python)
+chaquopy {
+    defaultConfig {
+        version '3.11'
+        buildPython 'python3'
+        pip {
+            install 'openpyxl'
+        }
     }
 }

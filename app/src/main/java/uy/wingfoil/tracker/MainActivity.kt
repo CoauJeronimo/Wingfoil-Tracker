@@ -21,6 +21,9 @@ import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
+import android.widget.EditText
+import android.text.InputType
+import android.content.ActivityNotFoundException
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -31,6 +34,8 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : Activity() {
+
+    companion object { private const val REQ_IMPORT = 41 }
 
     private lateinit var tvTime: TextView
     private lateinit var tvState: TextView
@@ -109,6 +114,17 @@ class MainActivity : Activity() {
             textSize = 15f
             setOnClickListener {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        })
+
+        root.addView(button("📥  Importar ZIP de Sensor Logger", card, Color.WHITE).apply {
+            textSize = 15f
+            setOnClickListener {
+                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                }
+                try { startActivityForResult(i, REQ_IMPORT) } catch (e: Exception) { toast("No se pudo abrir el selector de archivos") }
             }
         })
 
@@ -259,9 +275,14 @@ class MainActivity : Activity() {
                 text = String.format(Locale.US, "%d:%02d:%02d · %d puntos", dur / 3600, (dur / 60) % 60, dur % 60, sm.points)
             })
             val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val share = Button(this).apply {
-                text = "📤 Exportar / compartir"; isAllCaps = false
+            val analyze = Button(this).apply {
+                text = "📊 Analizar"; isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 2f)
+                setOnClickListener { analyzeDialog(d) }
+            }
+            val share = Button(this).apply {
+                text = "📤 ZIP"; isAllCaps = false
+                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f)
                 setOnClickListener { share(d) }
             }
             val del = Button(this).apply {
@@ -277,10 +298,123 @@ class MainActivity : Activity() {
                         .setNegativeButton("Cancelar", null).show()
                 }
             }
-            btns.addView(share); btns.addView(del)
+            btns.addView(analyze); btns.addView(share); btns.addView(del)
             row.addView(btns)
             list.addView(row)
         }
+    }
+
+    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    /* ---------- Importar ZIP de Sensor Logger ---------- */
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_IMPORT || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        val wait = AlertDialog.Builder(this).setMessage("Importando…").setCancelable(false).show()
+        Thread {
+            val dir = try {
+                contentResolver.openInputStream(uri)?.use { Analysis.importZip(this, it, uri.lastPathSegment) }
+            } catch (e: Exception) { null }
+            runOnUiThread {
+                wait.dismiss()
+                if (dir == null) toast("Ese archivo no es un ZIP con Location.csv")
+                else { toast("Sesión importada: ${dir.name}"); buildList() }
+            }
+        }.start()
+    }
+
+    /* ---------- Análisis WingFoil Completo ---------- */
+    private fun field(hint: String, value: String, type: Int): EditText = EditText(this).apply {
+        this.hint = hint; setText(value); inputType = type; textSize = 17f
+        setTextColor(Color.WHITE); setHintTextColor(mut)
+    }
+
+    private fun analyzeDialog(dir: File) {
+        val p = TrackService.prefs(this)
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+        fun label(s: String) = box.addView(text(13f, mut, true).apply { text = s; setPadding(0, dp(10), 0, 0) })
+        label("Viento: grados de DONDE VIENE (obligatorio)")
+        val fWind = field("ej. 169", p.getString("lastWind", "") ?: "", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        box.addView(fWind)
+        label("Fecha de la sesión")
+        val fFecha = field("DD-MM-AAAA", Analysis.fechaSesion(dir), InputType.TYPE_CLASS_TEXT)
+        box.addView(fFecha)
+        label("Secciones del KML")
+        val fSec = field("3", p.getString("lastSections", "3") ?: "3", InputType.TYPE_CLASS_NUMBER)
+        box.addView(fSec)
+        label("Tramos a excluir (opcional, hora local)")
+        val fExc = field("14:57:18-15:09:39, …", "", InputType.TYPE_CLASS_TEXT)
+        box.addView(fExc)
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Analizar sesión")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Analizar", null)
+            .setNegativeButton("Cancelar", null)
+            .show()
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val wind = fWind.text.toString().replace(',', '.').toDoubleOrNull()
+            val sec = fSec.text.toString().toIntOrNull() ?: 3
+            val fecha = fFecha.text.toString().trim()
+            when {
+                wind == null || wind < 0 || wind > 360 -> fWind.error = "Poné los grados (0 a 360)"
+                !Regex("""\d{2}-\d{2}-\d{4}""").matches(fecha) -> fFecha.error = "Formato DD-MM-AAAA"
+                sec < 1 || sec > 50 -> fSec.error = "Entre 1 y 50"
+                else -> {
+                    p.edit().putString("lastWind", fWind.text.toString()).putString("lastSections", sec.toString()).apply()
+                    dlg.dismiss()
+                    runAnalysis(dir, wind, fecha, sec, fExc.text.toString())
+                }
+            }
+        }
+    }
+
+    private fun runAnalysis(dir: File, wind: Double, fecha: String, sec: Int, exc: String) {
+        val wait = AlertDialog.Builder(this).setTitle("Analizando…")
+            .setMessage("Calculando maniobras y armando el PDF y el KML.\nLa primera vez tarda unos segundos más.")
+            .setCancelable(false).show()
+        Thread {
+            val r = try { Analysis.run(this, dir, wind, fecha, sec, exc) }
+                    catch (e: Throwable) { Analysis.Result(false, error = e.toString()) }
+            var pdfUri: Uri? = null; var kmlUri: Uri? = null
+            if (r.ok) try {
+                pdfUri = Analysis.saveToDownloads(this, r.pdf!!, "application/pdf")
+                kmlUri = Analysis.saveToDownloads(this, r.kml!!, "application/vnd.google-earth.kml+xml")
+                Analysis.saveToDownloads(this, r.xlsx!!, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            } catch (_: Exception) { }
+            runOnUiThread {
+                wait.dismiss()
+                if (!r.ok) {
+                    AlertDialog.Builder(this).setTitle("No se pudo analizar").setMessage(r.error)
+                        .setPositiveButton("OK", null).show()
+                    return@runOnUiThread
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Análisis listo · $fecha")
+                    .setMessage(r.resumen + "\n\nGuardado en Descargas/WingFoil/Analisis (PDF, KML y Excel).")
+                    .setPositiveButton("Ver PDF") { _, _ ->
+                        if (pdfUri != null) try {
+                            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(pdfUri, "application/pdf")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                        } catch (e: ActivityNotFoundException) { toast("No hay un visor de PDF instalado") }
+                    }
+                    .setNeutralButton("Compartir PDF + KML") { _, _ ->
+                        val uris = ArrayList<Uri>().apply { pdfUri?.let { add(it) }; kmlUri?.let { add(it) } }
+                        if (uris.isEmpty()) { toast("No se pudieron guardar los archivos"); return@setNeutralButton }
+                        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                            type = "*/*"
+                            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                            putExtra(Intent.EXTRA_SUBJECT, "Análisis wingfoil $fecha")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(send, "Compartir análisis"))
+                    }
+                    .setNegativeButton("Cerrar", null)
+                    .show()
+            }
+        }.start()
     }
 
     private fun share(dir: File) {
