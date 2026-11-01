@@ -515,7 +515,7 @@ def informe(R, path, sat=True, fetch=None):
             for ln in p.wrap("Altura estimada por el tiempo en el aire medido con el acelerómetro (teléfono en el pecho): altura = (g - tirón del ala) x t x t / 8, con t = tiempo en el aire. 'Completo' = después del aterrizaje la velocidad sigue por encima de 4 nudos. 'Fallido' = en los 10 s posteriores la velocidad cae bajo 4 nudos por más de 5 s, o la señal GPS se corta más de 5 s (teléfono bajo el agua). Después = velocidad media de 1 a 5 s después del aterrizaje.", 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     for i, c in enumerate(p.pages, 1):           # pie de página
-        p.c = c; p.text(W/2, H - 18, f"Wingfoil Tracker · Análisis WingFoil Completo · {R['fecha']} · página {i} de {len(p.pages)}", 7, False, '#8899AA', 'center')
+        p.c = c; p.text(W/2, H - 18, f"Wingfoil & PW Tracker · Análisis WingFoil Completo · {R['fecha']} · página {i} de {len(p.pages)}", 7, False, '#8899AA', 'center')
     p.save(path)
 
 if __name__ == '__main__':

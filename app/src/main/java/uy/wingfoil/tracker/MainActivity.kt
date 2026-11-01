@@ -80,7 +80,14 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(20), dp(16), dp(24))
             setBackgroundColor(bg)
         }
-        root.addView(text(20f, Color.WHITE, true).apply { text = "🪁 Wingfoil Tracker" })
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(android.widget.ImageView(this@MainActivity).apply {
+                setImageResource(R.mipmap.ic_launcher)
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { rightMargin = dp(12) }
+            })
+            addView(text(21f, Color.WHITE, true).apply { text = "Wingfoil & PW Tracker" })
+        })
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(card)
