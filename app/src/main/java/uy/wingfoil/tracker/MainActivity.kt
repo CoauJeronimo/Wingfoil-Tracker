@@ -22,6 +22,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
 import android.widget.EditText
+import android.widget.CheckBox
 import android.text.InputType
 import android.content.ActivityNotFoundException
 import android.widget.LinearLayout
@@ -347,6 +348,13 @@ class MainActivity : Activity() {
         label("Tramos a excluir (opcional, hora local)")
         val fExc = field("14:57:18-15:09:39, …", "", InputType.TYPE_CLASS_TEXT)
         box.addView(fExc)
+        val cSat = CheckBox(this).apply {
+            text = "Foto satelital de fondo en el mapa (usa internet; queda guardada para la próxima)"
+            setTextColor(Color.WHITE); textSize = 14f
+            isChecked = p.getBoolean("lastSat", true)
+            setPadding(0, dp(12), 0, dp(8))
+        }
+        box.addView(cSat)
 
         val dlg = AlertDialog.Builder(this)
             .setTitle("Analizar sesión")
@@ -363,20 +371,21 @@ class MainActivity : Activity() {
                 !Regex("""\d{2}-\d{2}-\d{4}""").matches(fecha) -> fFecha.error = "Formato DD-MM-AAAA"
                 sec < 1 || sec > 50 -> fSec.error = "Entre 1 y 50"
                 else -> {
-                    p.edit().putString("lastWind", fWind.text.toString()).putString("lastSections", sec.toString()).apply()
+                    p.edit().putString("lastWind", fWind.text.toString()).putString("lastSections", sec.toString())
+                        .putBoolean("lastSat", cSat.isChecked).apply()
                     dlg.dismiss()
-                    runAnalysis(dir, wind, fecha, sec, fExc.text.toString())
+                    runAnalysis(dir, wind, fecha, sec, fExc.text.toString(), cSat.isChecked)
                 }
             }
         }
     }
 
-    private fun runAnalysis(dir: File, wind: Double, fecha: String, sec: Int, exc: String) {
+    private fun runAnalysis(dir: File, wind: Double, fecha: String, sec: Int, exc: String, sat: Boolean) {
         val wait = AlertDialog.Builder(this).setTitle("Analizando…")
             .setMessage("Calculando maniobras y armando el PDF y el KML.\nLa primera vez tarda unos segundos más.")
             .setCancelable(false).show()
         Thread {
-            val r = try { Analysis.run(this, dir, wind, fecha, sec, exc) }
+            val r = try { Analysis.run(this, dir, wind, fecha, sec, exc, sat) }
                     catch (e: Throwable) { Analysis.Result(false, error = e.toString()) }
             var pdfUri: Uri? = null; var kmlUri: Uri? = null
             if (r.ok) try {

@@ -22,6 +22,16 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Prueba del PDF con imagen satelital
+        run: |
+          pip install -q openpyxl
+          python3 tools/ci_pdf_test.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-prueba
+          path: ci_out/*.pdf
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'

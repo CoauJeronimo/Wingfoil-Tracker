@@ -1,7 +1,7 @@
 """Puente entre la app Android y el análisis: corre wingfoil_analisis.py y arma el PDF."""
 import sys, io, os, re, json, importlib, contextlib, traceback
 
-def run(session_dir, outdir, wind, fecha, sections, excludes):
+def run(session_dir, outdir, wind, fecha, sections, excludes, sat=True):
     os.makedirs(outdir, exist_ok=True)
     jpath = os.path.join(outdir, 'resultados.json')
     if os.path.exists(jpath): os.remove(jpath)
@@ -23,7 +23,7 @@ def run(session_dir, outdir, wind, fecha, sections, excludes):
         R = json.load(open(jpath, encoding='utf-8'))
         import wf_pdf
         pdf = os.path.join(outdir, f'analisis_wingfoil_{fecha}.pdf')
-        wf_pdf.informe(R, pdf)
+        wf_pdf.informe(R, pdf, sat=bool(sat))
         T, V = R['por_tipo']['Trasluchada'], R['por_tipo']['Virada']
         def pc(x, s=False): return 's/d' if x is None else (f"{x*100:+.1f}%" if s else f"{x*100:.1f}%")
         resumen = (f"Distancia {R['distancia_km']:.2f} km · Tiempo {R['tiempo_min']:.1f} min\n"

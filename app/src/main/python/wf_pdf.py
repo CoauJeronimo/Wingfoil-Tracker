@@ -1,6 +1,6 @@
 """PDF del Análisis WingFoil — escritor de PDF en Python puro (sin dependencias).
 Uso: python3 wf_pdf.py resultados.json salida.pdf   (el JSON lo genera wingfoil_analisis.py --json)"""
-import json, math, sys, zlib
+import json, math, sys, zlib, os, hashlib
 _W_REG = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, 761, 556, 761, 222, 556, 333, 1000, 556, 556, 333, 1000, 667, 333, 1000, 761, 611, 761, 761, 222, 222, 333, 333, 350, 556, 1000, 333, 1000, 500, 333, 944, 761, 500, 667, 278, 333, 556, 556, 556, 556, 260, 556, 333, 737, 370, 556, 584, 333, 737, 333, 400, 584, 333, 333, 333, 556, 537, 278, 333, 333, 365, 556, 834, 834, 834, 611, 667, 667, 667, 667, 667, 667, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278, 722, 722, 778, 778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611, 556, 556, 556, 556, 556, 556, 889, 500, 556, 556, 556, 556, 278, 278, 278, 278, 556, 556, 556, 556, 556, 556, 556, 584, 611, 556, 556, 556, 556, 500, 556, 500]
 _W_BOLD = [278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611, 975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556, 333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611, 611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584, 761, 556, 761, 278, 556, 500, 1000, 556, 556, 333, 1000, 667, 333, 1000, 761, 611, 761, 761, 278, 278, 500, 500, 350, 556, 1000, 333, 1000, 556, 333, 944, 761, 500, 667, 278, 333, 556, 556, 556, 556, 280, 556, 333, 737, 370, 556, 584, 333, 737, 333, 400, 584, 333, 333, 333, 611, 556, 278, 333, 333, 365, 556, 834, 834, 834, 611, 722, 722, 722, 722, 722, 722, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278, 722, 722, 778, 778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611, 556, 556, 556, 556, 556, 556, 889, 556, 556, 556, 556, 556, 278, 278, 278, 278, 611, 611, 611, 611, 611, 611, 611, 584, 611, 611, 611, 611, 611, 556, 611, 556]
 
@@ -22,7 +22,18 @@ def _esc(s):
     return b.replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)')
 
 class PDF:
-    def __init__(self): self.pages = []; self.c = None
+    def __init__(self): self.pages = []; self.c = None; self.images = []
+    def add_jpeg(self, data):
+        info = jpeg_info(data)
+        if not info: return None
+        self.images.append((data,) + info); return f"Im{len(self.images)}"
+    def image(self, name, x, y, w, h):
+        self._o(f"q {w:.3f} 0 0 {h:.3f} {x:.3f} {H-y-h:.3f} cm /{name} Do Q\n")
+    def clip_begin(self, x, y, w, h): self._o(f"q {x:.2f} {H-y-h:.2f} {w:.2f} {h:.2f} re W n\n")
+    def clip_end(self): self._o("Q\n")
+    def shade(self, x, y, w, h, color, alpha):
+        self._o(f"q /GS{int(alpha*100)} gs {self._col(color, 'rg')} {x:.2f} {H-y-h:.2f} {w:.2f} {h:.2f} re f Q\n")
+        self.alphas.add(int(alpha*100)) if hasattr(self, 'alphas') else setattr(self, 'alphas', {int(alpha*100)})
     def page(self):
         self.c = []; self.pages.append(self.c)
     def _o(self, s): self.c.append(s.encode('latin-1') if isinstance(s, str) else s)
@@ -84,13 +95,19 @@ class PDF:
         def add(b): objs.append(b); return len(objs)
         f1 = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
         f2 = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
+        img_ids = []
+        for data, w_, h_, cs in self.images:
+            img_ids.append(add(b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /%s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n" % (w_, h_, cs.encode(), len(data)) + data + b"\nendstream"))
+        xo = " ".join(f"/Im{i} {o} 0 R" for i, o in enumerate(img_ids, 1))
+        gs = " ".join(f"/GS{a} << /Type /ExtGState /ca {a/100:.2f} /CA {a/100:.2f} >>" for a in sorted(getattr(self, 'alphas', set())))
+        extra = (f" /XObject << {xo} >>" if xo else "") + (f" /ExtGState << {gs} >>" if gs else "")
         pages_id = len(objs) + 1 + 2*len(self.pages)
         kids = []
         for c in self.pages:
             data = zlib.compress(b"".join(c))
             cid = add(b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(data) + data + b"\nendstream")
             kids.append(add(("<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %.2f %.2f] /Contents %d 0 R "
-                             "/Resources << /Font << /F1 %d 0 R /F2 %d 0 R >> >> >>" % (pages_id, W, H, cid, f1, f2)).encode()))
+                             "/Resources << /Font << /F1 %d 0 R /F2 %d 0 R >>%s >> >>" % (pages_id, W, H, cid, f1, f2, extra)).encode()))
         assert add(("<< /Type /Pages /Kids [%s] /Count %d >>" % (" ".join(f"{k} 0 R" for k in kids), len(kids))).encode()) == pages_id
         cat = add(b"<< /Type /Catalog /Pages %d 0 R >>" % pages_id)
         info = add(b"<< /Producer (Wingfoil Tracker) /Title (Analisis Wingfoil) >>")
@@ -102,6 +119,47 @@ class PDF:
         for o in offs: out += b"%010d 00000 n \n" % o
         out += b"trailer\n<< /Size %d /Root %d 0 R /Info %d 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs)+1, cat, info, x)
         open(path, 'wb').write(bytes(out))
+
+def jpeg_info(d):
+    """(ancho, alto, espacio de color) de un JPEG, o None si no es un JPEG utilizable."""
+    if len(d) < 4 or d[:2] != b'\xff\xd8': return None
+    i = 2
+    while i + 9 < len(d):
+        if d[i] != 0xFF: i += 1; continue
+        mk = d[i+1]
+        if mk in (0xD8, 0x01) or 0xD0 <= mk <= 0xD7: i += 2; continue
+        L = int.from_bytes(d[i+2:i+4], 'big')
+        if mk in (0xC0, 0xC1, 0xC2):
+            h_ = int.from_bytes(d[i+5:i+7], 'big'); w_ = int.from_bytes(d[i+7:i+9], 'big'); nc = d[i+9]
+            cs = {1: 'DeviceGray', 3: 'DeviceRGB'}.get(nc)
+            return (w_, h_, cs) if cs else None
+        i += 2 + L
+    return None
+
+TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+ATRIB = "Imagen satelital: Esri, Maxar, Earthstar Geographics y la comunidad de usuarios GIS"
+
+def _fetch_default(url):
+    """En la app usa la descarga de Android (con caché); en la computadora, urllib."""
+    try:
+        from java import jclass
+        b = jclass('uy.wingfoil.tracker.Tiles').get(url)
+        return bytes(b) if b is not None else None
+    except ImportError:
+        pass
+    try:
+        import urllib.request
+        rq = urllib.request.Request(url, headers={'User-Agent': 'WingfoilTracker/1.1'})
+        return urllib.request.urlopen(rq, timeout=10).read()
+    except Exception:
+        return None
+
+def _merc(lat, lon, z):
+    n = 256 * 2**z
+    la = max(-85.0, min(85.0, lat))
+    x = (lon + 180) / 360 * n
+    y = (1 - math.log(math.tan(math.radians(la)) + 1/math.cos(math.radians(la))) / math.pi) / 2 * n
+    return x, y
 
 # ---------------------------------------------------------------- informe
 NAVY = '#0B2545'; ACC = '#13A3D8'; GRIS = '#5B6B7F'; CLARO = '#EEF3F8'
@@ -141,30 +199,60 @@ def _arrow(p, cx, cy, deg_to, L, col, lw=1.6):
         ang = math.atan2(-dy, -dx) + s_*b
         p.polyline([(x1, y1), (x1 + h*math.cos(ang), y1 + h*math.sin(ang))], col, lw)
 
-def mapa(p, R, x, y, w, h):
-    p.rect(x, y, w, h, fill='#0E2A47')
+def mapa(p, R, x, y, w, h, sat=True, fetch=None):
     tr = R['track']
-    if len(tr) < 2: return
-    lat0 = sum(q[0] for q in tr)/len(tr); kx = math.cos(math.radians(lat0))
-    xs = [q[1]*kx for q in tr]; ys = [q[0] for q in tr]
-    allx = xs + [m['lon']*kx for m in R['maniobras']]; ally = ys + [m['lat'] for m in R['maniobras']]
-    mnx, mxx, mny, mxy = min(allx), max(allx), min(ally), max(ally)
-    pad = 22; sx = (w-2*pad)/max(mxx-mnx, 1e-9); sy = (h-2*pad)/max(mxy-mny, 1e-9); s = min(sx, sy)
-    ox = x + pad + ((w-2*pad) - (mxx-mnx)*s)/2; oy = y + pad + ((h-2*pad) - (mxy-mny)*s)/2
-    P = lambda la, lo: (ox + (lo*kx - mnx)*s, oy + (mxy - la)*s)
-    # track por color (sin unir segmentos distintos)
-    cur, cb = [], None
+    p.rect(x, y, w, h, fill='#0E2A47')
+    if len(tr) < 2: return False
+    lats = [q[0] for q in tr] + [m['lat'] for m in R['maniobras']]
+    lons = [q[1] for q in tr] + [m['lon'] for m in R['maniobras']]
+    pad = 22
+    # zoom: el más alto con el que el recorrido entra en ~2 píxeles por punto del mapa
+    z = 18
+    while z > 3:
+        x0, y0 = _merc(max(lats), min(lons), z); x1, y1 = _merc(min(lats), max(lons), z)
+        if (x1 - x0) <= (w - 2*pad) * 2.2 and (y1 - y0) <= (h - 2*pad) * 2.2: break
+        z -= 1
+    x0, y0 = _merc(max(lats), min(lons), z); x1, y1 = _merc(min(lats), max(lons), z)
+    s = min((w - 2*pad) / max(x1 - x0, 1e-9), (h - 2*pad) / max(y1 - y0, 1e-9))     # puntos por píxel
+    ox = x + pad + ((w - 2*pad) - (x1 - x0)*s)/2 - x0*s
+    oy = y + pad + ((h - 2*pad) - (y1 - y0)*s)/2 - y0*s
+    def P(la, lo):
+        mx, my = _merc(la, lo, z); return (ox + mx*s, oy + my*s)
+    # fondo satelital
+    con_sat = False
+    if sat:
+        fetch = fetch or _fetch_default
+        tx0 = int(((x - ox)/s) // 256); tx1 = int(((x + w - ox)/s) // 256)
+        ty0 = int(((y - oy)/s) // 256); ty1 = int(((y + h - oy)/s) // 256)
+        nmax = 2**z
+        tiles = [(tx, ty) for ty in range(max(0, ty0), min(nmax-1, ty1)+1) for tx in range(tx0, tx1+1)]
+        if len(tiles) <= 90:
+            p.clip_begin(x, y, w, h)
+            ok = 0
+            for tx, ty in tiles:
+                d = fetch(TILE_URL.format(z=z, x=tx % nmax, y=ty))
+                nm = p.add_jpeg(d) if d else None
+                if not nm: continue
+                p.image(nm, ox + tx*256*s, oy + ty*256*s, 256*s + 0.4, 256*s + 0.4); ok += 1
+            if ok:
+                con_sat = True
+                p.shade(x, y, w, h, '#000000', 0.28)     # oscurece un poco para que resalte el track
+            p.clip_end()
+    # track por color (sin unir segmentos distintos), con borde oscuro para que se lea sobre la foto
+    tramos = []; cur, cb = [], None
     for a, b in zip(tr, tr[1:]):
         if a[3] != b[3]:
-            if len(cur) > 1: p.polyline(cur, SPD[cb][0], 1.1)
+            if len(cur) > 1: tramos.append((cb, cur))
             cur, cb = [], None; continue
         bu = _bk((a[2]+b[2])/2)
         if bu != cb:
-            if len(cur) > 1: p.polyline(cur, SPD[cb][0], 1.1)
+            if len(cur) > 1: tramos.append((cb, cur))
             cur, cb = [P(a[0], a[1])], bu
         cur.append(P(b[0], b[1]))
-    if len(cur) > 1: p.polyline(cur, SPD[cb][0], 1.1)
-    # cortes de segmento: marcas pequeñas
+    if len(cur) > 1: tramos.append((cb, cur))
+    if con_sat:
+        for cb_, pts in tramos: p.polyline(pts, '#111111', 2.2)
+    for cb_, pts in tramos: p.polyline(pts, SPD[cb_][0], 1.1)
     for a, b in zip(tr, tr[1:]):
         if a[3] != b[3]:
             for q in (a, b):
@@ -177,20 +265,27 @@ def mapa(p, R, x, y, w, h):
             num = m['nombre'].split('#')[1].split(' ')[0]
             p.text(px+4.5, py-3, ('T' if m['tipo'] == 'Trasluchada' else 'V') + num + ('f' if m['resultado'] == 'Fallida' else ''), 5.5, True, '#FFFFFF')
     px, py = P(R['vmax20_lat'], R['vmax20_lon']); _star(p, px, py, 6.5, '#B44CFF')
-    # norte, viento y escala
-    nx, ny = x + w - 26, y + 30
+    # norte, viento y escala (con fondo para que se lean sobre la foto)
+    p.rect(x + w - 50, y + 8, 44, 112, fill='#0E2A47')
+    nx, ny = x + w - 28, y + 34
     _arrow(p, nx, ny, 0, 22, '#FFFFFF', 1.4); p.text(nx, ny - 15, 'N', 8, True, '#FFFFFF', 'center')
-    wx, wy = x + w - 26, y + 82
+    wx, wy = x + w - 28, y + 84
     _arrow(p, wx, wy, (R['viento'] + 180) % 360, 26, '#7FDBFF', 2.0)
-    p.text(wx, wy + 24, f"Viento {R['viento']:.0f}°", 7, True, '#7FDBFF', 'center')
-    mpp = 1/s * 111320           # metros por punto
+    p.text(wx, wy + 25, f"{R['viento']:.0f}°", 7.5, True, '#7FDBFF', 'center')
+    p.text(wx, wy - 20, "Viento", 6.5, True, '#7FDBFF', 'center')
+    lat_c = sum(lats)/len(lats)
+    mpp = 156543.03392 * math.cos(math.radians(lat_c)) / 2**z / s     # metros por punto
     for nice in (50, 100, 200, 250, 500, 1000, 2000, 5000):
         if nice/mpp > w*0.18: break
     L = nice/mpp; bx, by = x + 14, y + h - 16
+    p.rect(bx - 6, by - 14, L + 12, 22, fill='#0E2A47')
     p.rect(bx, by, L, 3, fill='#FFFFFF')
     p.text(bx, by - 4, f"{nice} m" if nice < 1000 else f"{nice//1000} km", 7, True, '#FFFFFF')
+    if con_sat:
+        p.text(x + w - 4, y + h - 4, ATRIB, 5, False, '#FFFFFF', 'right')
+    return con_sat
 
-def informe(R, path):
+def informe(R, path, sat=True, fetch=None):
     p = PDF(); p.page()
     # encabezado
     p.rect(0, 0, W, 78, fill=NAVY)
@@ -218,7 +313,7 @@ def informe(R, path):
         if sub: p.text(cx + 10, cy + 45, p.fit(sub, 6.8, tw - 14), 6.8, False, GRIS)
     # mapa
     my = 92 + 2*(th + 8) + 4; mh = H - my - 80
-    mapa(p, R, M, my, W - 2*M, mh)
+    con_sat = mapa(p, R, M, my, W - 2*M, mh, sat, fetch)
     # leyenda
     ly = my + mh + 16; lx = M
     p.text(lx, ly, "Velocidad:", 7.5, True, NAVY); lx += 44
@@ -231,7 +326,9 @@ def informe(R, path):
                           (('Virada', 'Completa'), 'Virada completa'), (('Virada', 'Fallida'), 'Virada fallida')):
         _marker(p, lx + 4, ly - 3, ty, rs, 3.4); p.text(lx + 11, ly, lab, 7.5, False, GRIS); lx += 18 + text_width(lab, 7.5) + 8
     _star(p, lx + 5, ly - 3, 5, '#B44CFF'); p.text(lx + 13, ly, "Vel. máx. 20 m", 7.5, False, GRIS)
-    p.text(M, ly + 14, "Etiquetas del mapa: T = trasluchada, V = virada, número de su grupo, f = fallida (como en el KML y la tabla).", 6.8, False, GRIS)
+    nota = "Etiquetas del mapa: T = trasluchada, V = virada, número de su grupo, f = fallida (como en el KML y la tabla)." if len(R['maniobras']) <= 45 else "Los nombres de cada maniobra están en la tabla y en el KML."
+    if sat and not con_sat: nota += "  Sin imagen satelital (no había conexión a internet)."
+    p.text(M, ly + 14, nota, 6.8, False, GRIS)
 
     # ---------- página 2: resumen detallado y maniobras
     p.page(); y = 50
