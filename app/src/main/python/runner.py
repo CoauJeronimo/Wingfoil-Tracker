@@ -29,8 +29,8 @@ def run(session_dir, outdir, wind, fecha, sections, excludes, sat=True):
         resumen = (f"Distancia {R['distancia_km']:.2f} km · Tiempo {R['tiempo_min']:.1f} min\n"
                    f"Planeo {R['planeo_min']:.1f} min ({pc(R['planeo_pct'])}) · Vel. media en planeo {R['vel_media_planeo']:.2f} kn\n"
                    f"Vel. máx. 20 m {R['vmax20']:.2f} kn ({R['vmax20_hora']})\n"
-                   f"Trasluchadas {T['completas']} completas / {T['fallidas']} fallidas · variación {pc(T['variacion'], True)}\n"
-                   f"Viradas {V['completas']} completas / {V['fallidas']} fallidas · variación {pc(V['variacion'], True)}\n"
+                   f"Trasluchadas {T['completas']} completas / {T['fallidas']} fallidas · variación (completas) {pc(T['variacion'], True)}\n"
+                   f"Viradas {V['completas']} completas / {V['fallidas']} fallidas · variación (completas) {pc(V['variacion'], True)}\n"
                    f"Cortes de señal {R['cortes']} ({R['sin_senal_min']:.1f} min) · descartados por precisión {R['descartados_precision']}")
         return json.dumps({'ok': True, 'pdf': pdf, 'kml': os.path.join(outdir, R['kml']),
                            'xlsx': os.path.join(outdir, R['xlsx']), 'resumen': resumen, 'log': out.getvalue()}, ensure_ascii=False)

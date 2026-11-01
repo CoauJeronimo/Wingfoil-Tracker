@@ -34,10 +34,10 @@ def _fila(R):
 
 COLS = [('Fecha', 12, None), ('Hora inicio', 11, None), ('Distancia (km)', 11, '0.00'), ('Duración (min)', 11, '0.0'),
         ('Planeo (min)', 11, '0.0'), ('% planeo', 10, '0.0%'), ('Vel. media planeo (kn)', 12, '0.00'), ('Vel. máx. 20 m (kn)', 12, '0.00'),
-        ('Trasluchadas completas', 13, '0'), ('Trasluchadas fallidas', 13, '0'), ('Trasl. vel. entrada (kn)', 13, '0.00'),
-        ('Trasl. vel. salida (kn)', 13, '0.00'), ('Trasl. variación', 12, '+0.0%;[Red]-0.0%;0.0%'),
-        ('Viradas completas', 11, '0'), ('Viradas fallidas', 11, '0'), ('Viradas vel. entrada (kn)', 13, '0.00'),
-        ('Viradas vel. salida (kn)', 13, '0.00'), ('Viradas variación', 12, '+0.0%;[Red]-0.0%;0.0%'),
+        ('Trasluchadas completas', 13, '0'), ('Trasluchadas fallidas', 13, '0'), ('Trasl. completas vel. entrada (kn)', 13, '0.00'),
+        ('Trasl. completas vel. salida (kn)', 13, '0.00'), ('Trasl. completas variación', 12, '+0.0%;[Red]-0.0%;0.0%'),
+        ('Viradas completas', 11, '0'), ('Viradas fallidas', 11, '0'), ('Viradas completas vel. entrada (kn)', 13, '0.00'),
+        ('Viradas completas vel. salida (kn)', 13, '0.00'), ('Viradas completas variación', 12, '+0.0%;[Red]-0.0%;0.0%'),
         ('Saltos completos', 11, '0'), ('Saltos fallidos', 11, '0'), ('Salto más alto (m)', 11, '0.00')]
 
 def exportar(sessions_root, out_path):
@@ -67,10 +67,10 @@ def exportar(sessions_root, out_path):
     x = ws.cell(rt, 6, f'=IFERROR(E{rt}/D{rt},"s/d")'); x.font = B; x.number_format = '0.0%'
     for c in (7, 8):
         x = ws.cell(rt, c, f'=IFERROR(AVERAGE({L(c)}{r0}:{L(c)}{rl}),"s/d")'); x.font = B; x.number_format = COLS[c-1][2]
-    # velocidades y variación: promedio ponderado por la cantidad de maniobras de cada sesión
-    for c, (wc, wf) in ((11, ('I', 'J')), (12, ('I', 'J')), (13, ('I', 'J')), (16, ('N', 'O')), (17, ('N', 'O')), (18, ('N', 'O'))):
+    # velocidades y variación (solo completas): promedio ponderado por la cantidad de completas de cada sesión
+    for c, wc in ((11, 'I'), (12, 'I'), (13, 'I'), (16, 'N'), (17, 'N'), (18, 'N')):
         col = L(c); rng = lambda k: f'{k}{r0}:{k}{rl}'
-        f_ = (f'=IFERROR(SUMPRODUCT({rng(col)},{rng(wc)}+{rng(wf)})/SUMPRODUCT(--({rng(col)}<>""),{rng(wc)}+{rng(wf)}),"s/d")')
+        f_ = (f'=IFERROR(SUMPRODUCT({rng(col)},{rng(wc)})/SUMPRODUCT(--({rng(col)}<>""),{rng(wc)}),"s/d")')
         x = ws.cell(rt, c, f_); x.font = B; x.number_format = COLS[c-1][2]
     x = ws.cell(rt, 21, f'=IFERROR(MAX({L(21)}{r0}:{L(21)}{rl}),"s/d")'); x.font = B; x.number_format = '0.00'
     for c in range(1, 22):

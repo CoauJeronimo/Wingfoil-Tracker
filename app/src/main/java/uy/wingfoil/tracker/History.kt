@@ -41,12 +41,12 @@ object History {
     private fun pct(x: Double?, signo: Boolean = false) =
         if (x == null) "s/d" else String.format(Locale("es"), if (signo) "%+.1f%%" else "%.1f%%", x * 100)
 
-    /** Promedio ponderado por cantidad de maniobras. */
+    /** Promedio ponderado por cantidad de maniobras COMPLETAS (las velocidades se calculan solo con completas). */
     private fun pond(L: List<Ses>, tipo: (Ses) -> JSONObject, k: String): Double? {
         var s = 0.0; var w = 0
         for (x in L) {
             val o = tipo(x); val v = d(o, k) ?: continue
-            val n = o.optInt("completas") + o.optInt("fallidas"); s += v * n; w += n
+            val n = o.optInt("completas"); s += v * n; w += n
         }
         return if (w > 0) s / w else null
     }
@@ -79,13 +79,13 @@ object History {
         tot.addView(tv(
             "Tiempo ${f1(min / 60, " h")} · Planeo ${pct(if (min > 0) plan / min else null)}\n" +
             "Trasluchadas $tc / $tf (éxito ${pct(if (tc + tf > 0) tc.toDouble() / (tc + tf) else null)})\n" +
-            "   entrada ${f1(pond(L, fT, "v_in"), " kn")} → salida ${f1(pond(L, fT, "v_out"), " kn")} (${pct(pond(L, fT, "variacion"), true)})\n" +
+            "   completas: ${f1(pond(L, fT, "v_in"), " kn")} → ${f1(pond(L, fT, "v_out"), " kn")} (${pct(pond(L, fT, "variacion"), true)})\n" +
             "Viradas $vc / $vf (éxito ${pct(if (vc + vf > 0) vc.toDouble() / (vc + vf) else null)})\n" +
-            "   entrada ${f1(pond(L, fV, "v_in"), " kn")} → salida ${f1(pond(L, fV, "v_out"), " kn")} (${pct(pond(L, fV, "variacion"), true)})\n" +
+            "   completas: ${f1(pond(L, fV, "v_in"), " kn")} → ${f1(pond(L, fV, "v_out"), " kn")} (${pct(pond(L, fV, "variacion"), true)})\n" +
             "Saltos $sc / $sf" + if (conAcc.size < L.size) "  (sin acelerómetro en ${L.size - conAcc.size})" else "",
             14f))
         box.addView(tot)
-        box.addView(tv("completas / fallidas", 11f, Color.rgb(143, 169, 199)).apply { setPadding(0, dp(4), 0, dp(8)) })
+        box.addView(tv("Cantidades: completas / fallidas. Velocidades (entrada → salida) y variación: solo maniobras completas.", 11f, Color.rgb(143, 169, 199)).apply { setPadding(0, dp(4), 0, dp(8)) })
         // ---- una tarjeta por sesión
         for (s in L) {
             val r = s.r

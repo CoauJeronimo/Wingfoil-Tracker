@@ -255,11 +255,11 @@ for m in fin:
     m['numero_grupo'] = c[key]; m['nombre'] = f"{m['tipo']} #{c[key]} ({m['resultado']})"
 print(Counter((m['tipo'], m['resultado']) for m in fin))
 for ty_ in ('Trasluchada', 'Virada'):
-    L_ = [m for m in fin if m['tipo'] == ty_]
-    if not L_: print(f"{ty_}s: sin maniobras"); continue
+    L_ = [m for m in fin if m['tipo'] == ty_ and m['resultado'] == 'Completa']      # velocidades: solo completas
+    if not L_: print(f"{ty_}s: sin maniobras completas"); continue
     vi_ = [m['v_in'] for m in L_]; vo_ = [m['v_out'] for m in L_ if m['v_out'] is not None]
     va_ = [(m['v_out']-m['v_in'])/m['v_in'] for m in L_ if m['v_out'] is not None and m['v_in']]
-    print(f"{ty_}s ({len(L_)}): entrada media {sum(vi_)/len(vi_):.2f} kn | salida media {sum(vo_)/len(vo_):.2f} kn | variación media {sum(va_)/len(va_)*100:+.1f}%")
+    print(f"{ty_}s completas ({len(L_)}): entrada media {sum(vi_)/len(vi_):.2f} kn | salida media {sum(vo_)/len(vo_):.2f} kn | variación media {sum(va_)/len(va_)*100:+.1f}%")
 M = fin
 
 # 8) SALTOS con el acelerómetro (TotalAcceleration.csv, opcional: Sensor Logger o Wingfoil Tracker >= 1.5)
@@ -459,9 +459,9 @@ rows = [('Origen del archivo', ORIGEN_TXT, None),
         ('% de éxito en viradas', '=IF({vc}+{vf}=0,"s/d",{vc}/({vc}+{vf}))', '0.0%'), ('Trasluchadas completas (sin caída)', cnt('Trasluchada', 'Completa'), None),
         ('Trasluchadas fallidas (con caída)', cnt('Trasluchada', 'Fallida'), None), ('% de éxito en trasluchadas', '=IF({tc}+{tf}=0,"s/d",{tc}/({tc}+{tf}))', '0.0%'),
         *[x for ty_, pl_ in (('Trasluchada', 'trasluchadas'), ('Virada', 'viradas')) for x in (
-            (f'Velocidad promedio de entrada a {pl_} (kn)', f'=IFERROR(AVERAGEIFS(Maniobras!H5:H{last},Maniobras!B5:B{last},"{ty_}"),"s/d")', '0.00'),
-            (f'Velocidad promedio de salida de {pl_} (kn)', f'=IFERROR(AVERAGEIFS(Maniobras!I5:I{last},Maniobras!B5:B{last},"{ty_}"),"s/d")', '0.00'),
-            (f'Variación promedio salida vs entrada, {pl_} (%)', f'=IFERROR(AVERAGEIFS(Maniobras!J5:J{last},Maniobras!B5:B{last},"{ty_}"),"s/d")', '+0.0%;[Red]-0.0%;0.0%'))],
+            (f'Velocidad promedio de entrada a {pl_} completas (kn)', f'=IFERROR(AVERAGEIFS(Maniobras!H5:H{last},Maniobras!B5:B{last},"{ty_}",Maniobras!C5:C{last},"Completa"),"s/d")', '0.00'),
+            (f'Velocidad promedio de salida de {pl_} completas (kn)', f'=IFERROR(AVERAGEIFS(Maniobras!I5:I{last},Maniobras!B5:B{last},"{ty_}",Maniobras!C5:C{last},"Completa"),"s/d")', '0.00'),
+            (f'Variación promedio salida vs entrada, {pl_} completas (%)', f'=IFERROR(AVERAGEIFS(Maniobras!J5:J{last},Maniobras!B5:B{last},"{ty_}",Maniobras!C5:C{last},"Completa"),"s/d")', '+0.0%;[Red]-0.0%;0.0%'))],
         ('Cortes de señal GPS (cantidad)', N_CORTES, None),
         ('Tiempo total sin señal (min)', round(T_SIN/60, 2), '0.0'),
         (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None)]
@@ -510,7 +510,7 @@ if A.json:
             for ty_ in ('Virada', 'Trasluchada') for rs_ in ('Completa', 'Fallida')}
     por_tipo = {}
     for ty_ in ('Trasluchada', 'Virada'):
-        L_ = [m for m in M if m['tipo'] == ty_]
+        L_ = [m for m in M if m['tipo'] == ty_ and m['resultado'] == 'Completa']    # velocidades y variación: solo completas
         c_, f_ = cnts[f'{ty_}_Completa'], cnts[f'{ty_}_Fallida']
         por_tipo[ty_] = {'completas': c_, 'fallidas': f_, 'exito': (c_/(c_+f_)) if c_+f_ else None,
                          'v_in': _prom(L_, 'v_in'), 'v_out': _prom(L_, 'v_out'), 'variacion': _var(L_)}

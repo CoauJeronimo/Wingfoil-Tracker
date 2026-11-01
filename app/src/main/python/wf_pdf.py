@@ -434,10 +434,10 @@ def informe(R, path, sat=True, fetch=None):
              ("Velocidad máxima en un tramo de 20 m", f"{_n(R['vmax20'], 2, ' kn')}  ({R['vmax20_hora']})"),
              ("Viradas completas / fallidas", f"{V['completas']} / {V['fallidas']}"), ("% de éxito en viradas", _pct(V['exito'])),
              ("Trasluchadas completas / fallidas", f"{T['completas']} / {T['fallidas']}"), ("% de éxito en trasluchadas", _pct(T['exito'])),
-             ("Trasluchadas: velocidad promedio de entrada", _n(T['v_in'], 2, ' kn')), ("Trasluchadas: velocidad promedio de salida", _n(T['v_out'], 2, ' kn')),
-             ("Trasluchadas: variación promedio salida vs entrada", _pct(T['variacion'], True)),
-             ("Viradas: velocidad promedio de entrada", _n(V['v_in'], 2, ' kn')), ("Viradas: velocidad promedio de salida", _n(V['v_out'], 2, ' kn')),
-             ("Viradas: variación promedio salida vs entrada", _pct(V['variacion'], True)),
+             ("Trasluchadas completas: velocidad promedio de entrada", _n(T['v_in'], 2, ' kn')), ("Trasluchadas completas: velocidad promedio de salida", _n(T['v_out'], 2, ' kn')),
+             ("Trasluchadas completas: variación promedio salida vs entrada", _pct(T['variacion'], True)),
+             ("Viradas completas: velocidad promedio de entrada", _n(V['v_in'], 2, ' kn')), ("Viradas completas: velocidad promedio de salida", _n(V['v_out'], 2, ' kn')),
+             ("Viradas completas: variación promedio salida vs entrada", _pct(V['variacion'], True)),
              ("Cortes de señal GPS", str(R['cortes'])), ("Tiempo total sin señal", _n(R['sin_senal_min'], 1, ' min')),
              (f"Puntos descartados por precisión (> {R['max_acc']:g} m)", str(R['descartados_precision']))]
     if R.get('acc'):
