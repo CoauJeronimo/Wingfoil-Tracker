@@ -1,0 +1,23 @@
+name: Imágenes satelitales para PDF de prueba
+
+on:
+  push:
+    paths: ['tools/tiles_needed.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tiles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Descargar imágenes
+        run: python3 tools/fetch_tiles.py
+      - name: Publicar tiles.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete tiles -y --cleanup-tag || true
+          gh release create tiles tiles.zip -t "Imágenes satelitales (uso interno)" -n "Para armar PDFs de prueba"
