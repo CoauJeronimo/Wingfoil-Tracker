@@ -27,7 +27,7 @@ ap.add_argument('--sections', type=int, default=3); ap.add_argument('--outdir', 
 ap.add_argument('--utc-offset', type=float, default=-3.0)
 ap.add_argument('--exclude', nargs='*', default=[])
 ap.add_argument('--json', help='opcional: guarda los resultados en JSON (lo usa la app para el PDF)')
-ap.add_argument('--salto-min', type=float, default=0.5, help='altura mínima (m) para informar un salto (por defecto 0.5)')
+ap.add_argument('--salto-min', type=float, default=0.8, help='tiempo mínimo en vuelo (s) para contar un salto (por defecto 0.8)')
 A = ap.parse_args()
 K = 1.9438444924406            # m/s -> nudos
 WIND_FROM = A.wind % 360; DOWNWIND = (WIND_FROM + 180) % 360
@@ -263,11 +263,13 @@ for ty_ in ('Trasluchada', 'Virada'):
 M = fin
 
 # 8) SALTOS con el acelerómetro (TotalAcceleration.csv, opcional: Sensor Logger o Wingfoil Tracker >= 1.5)
-#    En el aire el teléfono (en el pecho) queda casi en caída libre: |a| muy por debajo de 1 g.
-#    Tiempo en el aire t -> altura h = (g - a_media) * t² / 8  (a_media = tirón del ala que queda durante el vuelo).
+#    En el aire el teléfono (en el pecho) marca mucho menos de 1 g: queda solo el tirón del ala.
+#    SALTO = |a| (media móvil de 0.1 s) bajo 7 m/s² (0.7 g) durante --salto-min s o más (0.8 s: en una sesión
+#    sin saltos ninguna descarga del cuerpo pasó de 0.78 s). Altura máx. h = (g - a_media) * t² / 8;
+#    distancia en vuelo = velocidad GPS al despegar * t.
 #    Salto FALLIDO = en los 10 s posteriores al aterrizaje la velocidad cae bajo 4 kn por más de 5 s,
 #    o la señal GPS se corta más de 5 s (teléfono bajo el agua). Si no, salto COMPLETO.
-G = 9.81; A_LOW = 5.0; SALTO_MIN = A.salto_min
+G = 9.81; A_LOW = 7.0; SALTO_MIN = A.salto_min
 SALTOS = []; ACC_OK = False
 acc_f = None
 if A.location.lower().endswith('.zip'): acc_f = _abrir(A.location, 'TotalAcceleration.csv')
@@ -303,17 +305,11 @@ if acc_f:
                 else: runs.append((i, j))
                 i = j
             else: i += 1
-        A_EDGE = (A_LOW + G) / 2; ext = int(0.15 * fs)
         for i0_, j0_ in runs:
-            lim_ = i0_ - ext
-            while i0_ > 0 and i0_ > lim_ and am[i0_ - 1] < A_EDGE: i0_ -= 1      # bordes con la señal sin suavizar
-            lim_ = j0_ + ext
-            while j0_ < NA and j0_ < lim_ and am[j0_] < A_EDGE: j0_ += 1
             dur = ta[j0_ - 1] - ta[i0_]
-            if dur < 0.2: continue
+            if dur < SALTO_MIN: continue
             a_med = sum(am[i0_:j0_]) / (j0_ - i0_)
             h_ = max(0.0, G - a_med) * dur * dur / 8
-            if h_ < SALTO_MIN: continue
             ts_ = ta[i0_]; te_ = ta[j0_ - 1]
             if ts_ < t[0] or ts_ > t[-1] or any(a_ <= ts_ <= b_ for a_, b_ in EXC): continue
             k_ = bisect.bisect_left(t, ts_); k_ = min(max(k_, 0), n - 1)
@@ -349,7 +345,7 @@ if acc_f:
             SALTOS.append({'t': ts_, 'aire': dur, 'altura': h_, 'dist': v_in / K * dur, 'v_in': v_in, 'v_out': v_out, 'impacto_g': imp / G,
                            'lat': lat[k_], 'lon': lon[k_], 'cd': cd[k_], 'resultado': 'Fallido' if fallido else 'Completo', 'nota': nota_})
         for i_, e_ in enumerate(SALTOS, 1): e_['nombre'] = f"Salto #{i_} ({e_['resultado']})"
-    print(f"Saltos (>= {SALTO_MIN:g} m): {len(SALTOS)} | completos {sum(e_['resultado'] == 'Completo' for e_ in SALTOS)} | fallidos {sum(e_['resultado'] == 'Fallido' for e_ in SALTOS)}" +
+    print(f"Saltos (vuelo >= {SALTO_MIN:g} s): {len(SALTOS)} | completos {sum(e_['resultado'] == 'Completo' for e_ in SALTOS)} | fallidos {sum(e_['resultado'] == 'Fallido' for e_ in SALTOS)}" +
           (f" | más alto {max(e_['altura'] for e_ in SALTOS):.2f} m" if SALTOS else ''))
 else:
     print("Saltos: sin datos de acelerómetro (TotalAcceleration.csv)")
@@ -401,7 +397,7 @@ k_.append('</Folder>')
 if SALTOS:
     k_.append('<Style id="saltoC"><IconStyle><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/ylw-blank.png</href></Icon></IconStyle></Style>')
     k_.append('<Style id="saltoF"><IconStyle><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/pink-blank.png</href></Icon></IconStyle></Style>')
-    k_.append(f'<Folder><name>Saltos (>= {SALTO_MIN:g} m) ({len(SALTOS)})</name>')
+    k_.append(f'<Folder><name>Saltos ({len(SALTOS)})</name>')
     for res_, sty_, tit_ in (('Completo', 'saltoC', 'Salto COMPLETO (sigue navegando)'), ('Fallido', 'saltoF', 'Salto FALLIDO (con caída)')):
         L_ = [e_ for e_ in SALTOS if e_['resultado'] == res_]
         if not L_: continue
@@ -471,7 +467,7 @@ rows = [('Origen del archivo', ORIGEN_TXT, None),
         (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None)]
 if ACC_OK:
     _sc = sum(e_['resultado'] == 'Completo' for e_ in SALTOS); _sf = len(SALTOS) - _sc
-    rows += [(f'Saltos de {SALTO_MIN:g} m o más (cantidad)', len(SALTOS), None),
+    rows += [(f'Saltos (vuelo de {SALTO_MIN:g} s o más)', len(SALTOS), None),
              ('Saltos completos (siguen navegando)', _sc, None), ('Saltos fallidos (con caída)', _sf, None),
              ('% de éxito en saltos', (_sc / len(SALTOS)) if SALTOS else 's/d', '0.0%'),
              ('Salto más alto (m)', round(max(e_['altura'] for e_ in SALTOS), 2) if SALTOS else 's/d', '0.00'),

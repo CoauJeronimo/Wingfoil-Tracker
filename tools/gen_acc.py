@@ -8,7 +8,7 @@ EP = int(list(csv.DictReader(io.StringIO(meta)))[0]['recording epoch time'])
 ts = [float(r['seconds_elapsed']) for r in rows]
 # caída: justo antes del hueco grande de GPS
 gap_i = max(range(1, len(ts)), key=lambda i: ts[i]-ts[i-1]); t_caida = ts[gap_i-1] - 5.5
-eventos = [(100.0, 0.72, 1.0), (250.0, 1.00, 1.5), (t_caida, 0.75, 1.0)]   # (inicio, tiempo en el aire, |a| en el aire)
+eventos = [(100.0, 1.2, 3.5), (250.0, 1.5, 4.0), (t_caida, 1.1, 3.0)]   # (inicio, tiempo en el aire, |a| en el aire)
 out = io.StringIO(); out.write('time,seconds_elapsed,z,y,x\n')
 t = 0.0; T = ts[-1]
 while t < T:

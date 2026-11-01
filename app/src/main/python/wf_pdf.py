@@ -378,9 +378,9 @@ def informe(R, path, sat=True, fetch=None):
         top_ = max(SL, key=lambda e: e['altura']) if SL else None
         sc_ = sum(e['resultado'] == 'Completo' for e in SL); sf_ = len(SL) - sc_
         tiles.insert(4, ("Saltos", f"{sc_} / {sf_}",
-                         (f"compl./fall. · éxito {_pct(sc_ / len(SL))}" if SL else f"ninguno de {_n(R['salto_min'], 1)} m o más")))
+                         (f"compl./fall. · éxito {_pct(sc_ / len(SL))}" if SL else "ninguno en esta sesión")))
         tiles.append(("Salto más alto", _n(top_['altura'], 2, ' m') if top_ else 's/d',
-                      f"{top_['hora']} · {top_['resultado'].lower()}" if top_ else f"desde {_n(R['salto_min'], 1)} m"))
+                      f"{top_['hora']} · {top_['resultado'].lower()}" if top_ else "sin saltos"))
     NC = 5 if len(tiles) > 8 else 4
     tw = (W - 2*M - (NC-1)*8) / NC; th = 52
     for i, (l, v_, sub) in enumerate(tiles):
@@ -439,7 +439,7 @@ def informe(R, path, sat=True, fetch=None):
     if R.get('acc'):
         SL = R.get('saltos', []); top_ = max(SL, key=lambda e: e['altura']) if SL else None
         sc_ = sum(e['resultado'] == 'Completo' for e in SL)
-        filas += [(f"Saltos de {R['salto_min']:g} m o más".replace('.', ','), str(len(SL))),
+        filas += [(f"Saltos (vuelo de {R['salto_min']:g} s o más)".replace('.', ','), str(len(SL))),
                   ("Saltos completos / fallidos", f"{sc_} / {len(SL) - sc_}"),
                   ("% de éxito en saltos", _pct(sc_ / len(SL)) if SL else 's/d'),
                   ("Salto más alto", f"{_n(top_['altura'], 2, ' m')}  ({top_['hora']}, {top_['resultado'].lower()})" if top_ else 's/d')]
@@ -512,7 +512,7 @@ def informe(R, path, sat=True, fetch=None):
             y += 14
         y += 12
         if y < H - 50:
-            for ln in p.wrap("Altura estimada por el tiempo en el aire medido con el acelerómetro (teléfono en el pecho): altura = (g - tirón del ala) x t x t / 8, con t = tiempo en el aire. 'Completo' = después del aterrizaje la velocidad sigue por encima de 4 nudos. 'Fallido' = en los 10 s posteriores la velocidad cae bajo 4 nudos por más de 5 s, o la señal GPS se corta más de 5 s (teléfono bajo el agua). Vuelo = tiempo en el aire. Distancia = velocidad GPS al despegar x tiempo en el aire. Después = velocidad media de 1 a 5 s después del aterrizaje.", 7, W - 2*M):
+            for ln in p.wrap("Salto = el acelerómetro (teléfono en el pecho) marca menos de 0,7 g durante 0,8 s o más. Altura máx. = (g - tirón del ala) x t x t / 8, con t = tiempo en vuelo. 'Completo' = después del aterrizaje la velocidad sigue por encima de 4 nudos. 'Fallido' = en los 10 s posteriores la velocidad cae bajo 4 nudos por más de 5 s, o la señal GPS se corta más de 5 s (teléfono bajo el agua). Vuelo = tiempo en el aire. Distancia = velocidad GPS al despegar x tiempo en el aire. Después = velocidad media de 1 a 5 s después del aterrizaje.", 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     for i, c in enumerate(p.pages, 1):           # pie de página
         p.c = c; p.text(W/2, H - 18, f"Wingfoil & PW Tracker · Análisis WingFoil Completo · {R['fecha']} · página {i} de {len(p.pages)}", 7, False, '#8899AA', 'center')
