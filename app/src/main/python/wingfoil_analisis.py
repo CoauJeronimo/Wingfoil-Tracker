@@ -250,7 +250,7 @@ for m in dd:
               'nota': 'corte de señal tras el giro' if cayo_agua else ''}); fin.append(m)
 c = {}
 for m in fin:
-    key = (m['tipo'], m['resultado']); c[key] = c.get(key, 0) + 1
+    key = m['tipo']; c[key] = c.get(key, 0) + 1          # numeración consecutiva por tipo (completas y fallidas juntas)
     m['numero_grupo'] = c[key]; m['nombre'] = f"{m['tipo']} #{c[key]} ({m['resultado']})"
 print(Counter((m['tipo'], m['resultado']) for m in fin))
 for ty_ in ('Trasluchada', 'Virada'):

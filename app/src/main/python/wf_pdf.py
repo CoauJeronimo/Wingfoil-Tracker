@@ -334,7 +334,8 @@ def _leyenda(p, y, completa=True):
     return y
 
 def informe(R, path, sat=True, fetch=None):
-    for i, m in enumerate(R['maniobras'], 1): m['n'] = i
+    for m in R['maniobras']:
+        m['n'] = ('T' if m['tipo'] == 'Trasluchada' else 'V') + m['nombre'].split('#')[1].split(' ')[0]
     tr = R['track']
     if 'vmax20_cd' not in R:
         R['vmax20_cd'] = min(tr, key=lambda q: (q[0]-R['vmax20_lat'])**2 + (q[1]-R['vmax20_lon'])**2)[4] if tr else 0
@@ -364,7 +365,7 @@ def informe(R, path, sat=True, fetch=None):
     my = 92 + 2*(th + 8) + 4; mh = H - my - 80
     con_sat = mapa(p, R, M, my, W - 2*M, mh, sat, fetch)
     ly = _leyenda(p, my + mh + 16)
-    nota = f"Track completo. En las páginas siguientes, el track en {R['secciones']} secciones con cada maniobra numerada (N° de la tabla)."
+    nota = f"Track completo. En las páginas siguientes, el track en {R['secciones']} secciones con cada maniobra numerada (T = trasluchada, V = virada)."
     if sat and not con_sat: nota += "  Sin imagen satelital (no había conexión a internet)."
     p.text(M, ly + 14, nota, 6.8, False, GRIS)
 
@@ -389,7 +390,7 @@ def informe(R, path, sat=True, fetch=None):
         top = 70; mh2 = H - top - 74
         mapa(p, R, M, top, W - 2*M, mh2, sat, fetch, rango=(d0, d1), numeros=True)
         ly = _leyenda(p, top + mh2 + 16)
-        p.text(M, ly + 14, "El número de cada maniobra es el N° de la tabla de maniobras. En gris, el resto del track.", 6.8, False, GRIS)
+        p.text(M, ly + 14, "T = trasluchada, V = virada, numeradas en orden de hora (completas y fallidas juntas); el color indica el resultado. En gris, el resto del track.", 6.8, False, GRIS)
 
     # ---------- resumen detallado y tabla de maniobras
     p.page(); y = 50
@@ -414,7 +415,7 @@ def informe(R, path, sat=True, fetch=None):
         p.text(W - M - 6, y + 10.5, p.fit(v_, 8.5, 230, True), 8.5, True, '#C00000' if neg else NAVY, 'right')
         y += 15
     y += 22
-    cols = [("N°", 24, 'center'), ("Nombre (KML)", 122, 'left'), ("Sec.", 26, 'center'), ("Hora", 46, 'center'), ("Transc.", 38, 'center'),
+    cols = [("Mapa", 28, 'center'), ("Nombre (KML)", 122, 'left'), ("Sec.", 26, 'center'), ("Hora", 46, 'center'), ("Transc.", 38, 'center'),
             ("Entrada", 46, 'right'), ("Salida", 46, 'right'), ("Variación", 50, 'right'), ("Observación", 0, 'left')]
     used = sum(c[1] for c in cols); cols[-1] = (cols[-1][0], W - 2*M - used, 'left')
     def head(y):
@@ -440,7 +441,7 @@ def informe(R, path, sat=True, fetch=None):
             for (nm, cw, al), val in zip(cols, vals):
                 tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
                 col = '#C00000' if nm == 'Variación' and val.startswith('-') else '#222222'
-                p.text(tx, y + 10, p.fit(val, 7.8, cw - 8), 7.8, nm in ('N°', 'Nombre (KML)'), col, al); xx += cw
+                p.text(tx, y + 10, p.fit(val, 7.8, cw - 6), 7.8, nm in ('Mapa', 'Nombre (KML)'), col, al); xx += cw
             y += 14
         y += 16
         if y < H - 60:
