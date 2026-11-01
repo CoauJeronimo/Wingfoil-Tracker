@@ -346,7 +346,7 @@ if acc_f:
                             fallido = True; nota_ = 'velocidad < 4 kn más de 5 s' if not fin_ else 'velocidad < 4 kn y corte de señal'
                         i = j + 1
                     else: i += 1
-            SALTOS.append({'t': ts_, 'aire': dur, 'altura': h_, 'v_in': v_in, 'v_out': v_out, 'impacto_g': imp / G,
+            SALTOS.append({'t': ts_, 'aire': dur, 'altura': h_, 'dist': v_in / K * dur, 'v_in': v_in, 'v_out': v_out, 'impacto_g': imp / G,
                            'lat': lat[k_], 'lon': lon[k_], 'cd': cd[k_], 'resultado': 'Fallido' if fallido else 'Completo', 'nota': nota_})
         for i_, e_ in enumerate(SALTOS, 1): e_['nombre'] = f"Salto #{i_} ({e_['resultado']})"
     print(f"Saltos (>= {SALTO_MIN:g} m): {len(SALTOS)} | completos {sum(e_['resultado'] == 'Completo' for e_ in SALTOS)} | fallidos {sum(e_['resultado'] == 'Fallido' for e_ in SALTOS)}" +
@@ -407,7 +407,7 @@ if SALTOS:
         if not L_: continue
         k_.append(f'<Folder><name>{tit_} ({len(L_)})</name>')
         for e_ in L_:
-            d_ = (f"Hora: {hora(e_['t'])}<br/>Tiempo en el aire: {e_['aire']:.2f} s<br/>Altura estimada: {e_['altura']:.2f} m<br/>Velocidad: {e_['v_in']:.1f} kn"
+            d_ = (f"Hora: {hora(e_['t'])}<br/>Tiempo en vuelo: {e_['aire']:.2f} s<br/>Altura máxima estimada: {e_['altura']:.2f} m<br/>Distancia en vuelo: {e_['dist']:.1f} m<br/>Velocidad: {e_['v_in']:.1f} kn"
                   + (f"<br/>Nota: {e_['nota']}" if e_['nota'] else ''))
             nm_ = e_['nombre'].split(' (')[0]
             k_.append(f'<Placemark><name>{nm_} — {e_["altura"]:.1f} m — {hora(e_["t"])} ({res_})</name><description><![CDATA[{d_}]]></description><styleUrl>#{sty_}</styleUrl><Point><coordinates>{e_["lon"]:.7f},{e_["lat"]:.7f},0</coordinates></Point></Placemark>')
@@ -490,14 +490,14 @@ for i, (l, vv, f) in enumerate(rows, 4):
 wr.column_dimensions['B'].width = 46; wr.column_dimensions['C'].width = 20
 if ACC_OK:
     wsx = wb.create_sheet('Saltos', 2)
-    for ci, h in enumerate(['Nombre', 'Resultado', 'Hora local', 'Tiempo en el aire (s)', 'Altura estimada (m)', 'Velocidad (kn)', 'Velocidad después (kn)', 'Impacto al aterrizar (g)', 'Latitud', 'Longitud', 'Observación'], 1):
+    for ci, h in enumerate(['Nombre', 'Resultado', 'Hora local', 'Tiempo en vuelo (s)', 'Altura máxima estimada (m)', 'Distancia en vuelo (m)', 'Velocidad al despegar (kn)', 'Velocidad después (kn)', 'Impacto al aterrizar (g)', 'Latitud', 'Longitud', 'Observación'], 1):
         x = wsx.cell(1, ci, h); x.font = HFo; x.fill = HF; x.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     for r, e_ in enumerate(SALTOS, 2):
         flx = PatternFill('solid', fgColor='DFF9FF' if e_['resultado'] == 'Completo' else 'FFD6EC')
-        for ci, val in enumerate([e_['nombre'], e_['resultado'], hora(e_['t']), round(e_['aire'], 2), round(e_['altura'], 2), round(e_['v_in'], 1),
+        for ci, val in enumerate([e_['nombre'], e_['resultado'], hora(e_['t']), round(e_['aire'], 2), round(e_['altura'], 2), round(e_['dist'], 1), round(e_['v_in'], 1),
                                   round(e_['v_out'], 1) if e_['v_out'] is not None else None, round(e_['impacto_g'], 1), round(e_['lat'], 6), round(e_['lon'], 6), e_['nota']], 1):
             x = wsx.cell(r, ci, val); x.font = N; x.fill = flx
-    for col, w in zip('ABCDEFGHIJK', [24, 12, 12, 16, 16, 14, 18, 18, 12, 12, 30]): wsx.column_dimensions[col].width = w
+    for col, w in zip('ABCDEFGHIJKL', [24, 12, 12, 14, 16, 16, 16, 18, 18, 12, 12, 30]): wsx.column_dimensions[col].width = w
     wsx.row_dimensions[1].height = 30
 xlsx_path = os.path.join(A.outdir, f'track_wingfoil_{FECHA}_maniobras.xlsx'); wb.save(xlsx_path)
 print("KML:", kml_path); print("XLSX:", xlsx_path)
@@ -534,7 +534,7 @@ if A.json:
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
         'acc': ACC_OK, 'salto_min': SALTO_MIN,
-        'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'v_in': e_['v_in'],
+        'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'dist': e_['dist'], 'v_in': e_['v_in'],
                     'v_out': e_['v_out'], 'impacto_g': e_['impacto_g'], 'lat': e_['lat'], 'lon': e_['lon'], 'cd': e_['cd'],
                     'resultado': e_['resultado'], 'nota': e_['nota']} for e_ in SALTOS],
         'track': [[round(lat[i], 7), round(lon[i], 7), round(v[i], 2), seg[i], round(cd[i], 1), round(t[i], 1)] for i in range(0, n, paso)],

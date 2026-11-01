@@ -488,8 +488,8 @@ def informe(R, path, sat=True, fetch=None):
     if SL:
         y += 14
         if y > H - 120: p.page(); y = 50
-        scols = [("Mapa", 30, 'center'), ("Resultado", 56, 'left'), ("Hora", 48, 'center'), ("Sec.", 26, 'center'), ("En el aire", 50, 'right'),
-                 ("Altura", 46, 'right'), ("Vel. kn", 40, 'right'), ("Después", 46, 'right'), ("Impacto", 44, 'right'), ("Observación", 0, 'left')]
+        scols = [("Mapa", 28, 'center'), ("Resultado", 52, 'left'), ("Hora", 46, 'center'), ("Sec.", 24, 'center'), ("Vuelo", 40, 'right'),
+                 ("Altura máx.", 50, 'right'), ("Distancia", 48, 'right'), ("Vel. kn", 38, 'right'), ("Después", 42, 'right'), ("Impacto", 40, 'right'), ("Observación", 0, 'left')]
         used = sum(c[1] for c in scols); scols[-1] = (scols[-1][0], W - 2*M - used, 'left')
         def shead(y):
             p.text(M, y, "Saltos", 15, True, NAVY); y += 10
@@ -503,16 +503,16 @@ def informe(R, path, sat=True, fetch=None):
             if y > H - 50: p.page(); y = shead(50)
             p.rect(M, y, W - 2*M, 14, fill='#DFF9FF' if e['resultado'] == 'Completo' else '#FFD6EC')
             sec_ = min(int(e['cd'] // sl) + 1, NS) if sl else 1
-            vals = ['S' + e['nombre'].split('#')[1].split(' ')[0], e['resultado'], e['hora'], str(sec_), _n(e['aire'], 2, ' s'), _n(e['altura'], 2, ' m'),
+            vals = ['S' + e['nombre'].split('#')[1].split(' ')[0], e['resultado'], e['hora'], str(sec_), _n(e['aire'], 2, ' s'), _n(e['altura'], 2, ' m'), _n(e.get('dist'), 1, ' m'),
                     _n(e['v_in'], 1), _n(e['v_out'], 1), _n(e['impacto_g'], 1, ' g'), e.get('nota', '')]
             xx = M
             for (nm, cw, al), val in zip(scols, vals):
                 tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
-                p.text(tx, y + 10, p.fit(val, 7.6, cw - 6), 7.6, nm in ('Mapa', 'Altura', 'Resultado'), '#222222', al); xx += cw
+                p.text(tx, y + 10, p.fit(val, 7.6, cw - 6), 7.6, nm in ('Mapa', 'Altura máx.', 'Resultado'), '#222222', al); xx += cw
             y += 14
         y += 12
         if y < H - 50:
-            for ln in p.wrap("Altura estimada por el tiempo en el aire medido con el acelerómetro (teléfono en el pecho): altura = (g - tirón del ala) x t x t / 8, con t = tiempo en el aire. 'Completo' = después del aterrizaje la velocidad sigue por encima de 4 nudos. 'Fallido' = en los 10 s posteriores la velocidad cae bajo 4 nudos por más de 5 s, o la señal GPS se corta más de 5 s (teléfono bajo el agua). Después = velocidad media de 1 a 5 s después del aterrizaje.", 7, W - 2*M):
+            for ln in p.wrap("Altura estimada por el tiempo en el aire medido con el acelerómetro (teléfono en el pecho): altura = (g - tirón del ala) x t x t / 8, con t = tiempo en el aire. 'Completo' = después del aterrizaje la velocidad sigue por encima de 4 nudos. 'Fallido' = en los 10 s posteriores la velocidad cae bajo 4 nudos por más de 5 s, o la señal GPS se corta más de 5 s (teléfono bajo el agua). Vuelo = tiempo en el aire. Distancia = velocidad GPS al despegar x tiempo en el aire. Después = velocidad media de 1 a 5 s después del aterrizaje.", 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     for i, c in enumerate(p.pages, 1):           # pie de página
         p.c = c; p.text(W/2, H - 18, f"Wingfoil & PW Tracker · Análisis WingFoil Completo · {R['fecha']} · página {i} de {len(p.pages)}", 7, False, '#8899AA', 'center')
