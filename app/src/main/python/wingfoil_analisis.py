@@ -27,7 +27,8 @@ ap.add_argument('--sections', type=int, default=3); ap.add_argument('--outdir', 
 ap.add_argument('--utc-offset', type=float, default=-3.0)
 ap.add_argument('--exclude', nargs='*', default=[])
 ap.add_argument('--json', help='opcional: guarda los resultados en JSON (lo usa la app para el PDF)')
-ap.add_argument('--salto-min', type=float, default=0.8, help='tiempo mínimo en vuelo (s) para contar un salto (por defecto 0.8)')
+ap.add_argument('--salto-min', type=float, default=1.0, help='tiempo mínimo en vuelo (s) para contar un salto (por defecto 1.0)')
+ap.add_argument('--salto-h-min', type=float, default=0.5, help='altura mínima estimada (m) para contar un salto (por defecto 0.5)')
 A = ap.parse_args()
 K = 1.9438444924406            # m/s -> nudos
 WIND_FROM = A.wind % 360; DOWNWIND = (WIND_FROM + 180) % 360
@@ -264,8 +265,9 @@ M = fin
 
 # 8) SALTOS con el acelerómetro (TotalAcceleration.csv, opcional: Sensor Logger o Wingfoil Tracker >= 1.5)
 #    En el aire el teléfono (en el pecho) marca mucho menos de 1 g: queda solo el tirón del ala.
-#    SALTO = |a| (media móvil de 0.1 s) bajo 7 m/s² (0.7 g) durante --salto-min s o más (0.8 s: en una sesión
-#    sin saltos ninguna descarga del cuerpo pasó de 0.78 s). Altura máx. h = (g - a_media) * t² / 8;
+#    SALTO = |a| (media móvil de 0.1 s) bajo 7 m/s² (0.7 g) durante --salto-min s o más (1.0 s) Y altura estimada
+#    >= --salto-h-min (0.5 m). Con oleaje (01-11-2026) el cuerpo se descarga al pasar una ola hasta 0.8 s y
+#    ~0.5 g, con altura estimada <= 0.46 m: no cuenta. Altura máx. h = (g - a_media) * t² / 8;
 #    distancia en vuelo = velocidad GPS al despegar * t.
 #    Salto FALLIDO = en los 10 s posteriores al aterrizaje la velocidad cae bajo 4 kn por más de 5 s,
 #    o la señal GPS se corta más de 5 s (teléfono bajo el agua). Si no, salto COMPLETO.
@@ -310,6 +312,7 @@ if acc_f:
             if dur < SALTO_MIN: continue
             a_med = sum(am[i0_:j0_]) / (j0_ - i0_)
             h_ = max(0.0, G - a_med) * dur * dur / 8
+            if h_ < A.salto_h_min: continue
             ts_ = ta[i0_]; te_ = ta[j0_ - 1]
             if ts_ < t[0] or ts_ > t[-1] or any(a_ <= ts_ <= b_ for a_, b_ in EXC): continue
             k_ = bisect.bisect_left(t, ts_); k_ = min(max(k_, 0), n - 1)
@@ -345,7 +348,7 @@ if acc_f:
             SALTOS.append({'t': ts_, 'aire': dur, 'altura': h_, 'dist': v_in / K * dur, 'v_in': v_in, 'v_out': v_out, 'impacto_g': imp / G,
                            'lat': lat[k_], 'lon': lon[k_], 'cd': cd[k_], 'resultado': 'Fallido' if fallido else 'Completo', 'nota': nota_})
         for i_, e_ in enumerate(SALTOS, 1): e_['nombre'] = f"Salto #{i_} ({e_['resultado']})"
-    print(f"Saltos (vuelo >= {SALTO_MIN:g} s): {len(SALTOS)} | completos {sum(e_['resultado'] == 'Completo' for e_ in SALTOS)} | fallidos {sum(e_['resultado'] == 'Fallido' for e_ in SALTOS)}" +
+    print(f"Saltos (vuelo >= {SALTO_MIN:g} s y >= {A.salto_h_min:g} m): {len(SALTOS)} | completos {sum(e_['resultado'] == 'Completo' for e_ in SALTOS)} | fallidos {sum(e_['resultado'] == 'Fallido' for e_ in SALTOS)}" +
           (f" | más alto {max(e_['altura'] for e_ in SALTOS):.2f} m" if SALTOS else ''))
 else:
     print("Saltos: sin datos de acelerómetro (TotalAcceleration.csv)")
@@ -467,7 +470,7 @@ rows = [('Origen del archivo', ORIGEN_TXT, None),
         (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None)]
 if ACC_OK:
     _sc = sum(e_['resultado'] == 'Completo' for e_ in SALTOS); _sf = len(SALTOS) - _sc
-    rows += [(f'Saltos (vuelo de {SALTO_MIN:g} s o más)', len(SALTOS), None),
+    rows += [(f'Saltos (vuelo de {SALTO_MIN:g} s o más y {A.salto_h_min:g} m o más)', len(SALTOS), None),
              ('Saltos completos (siguen navegando)', _sc, None), ('Saltos fallidos (con caída)', _sf, None),
              ('% de éxito en saltos', (_sc / len(SALTOS)) if SALTOS else 's/d', '0.0%'),
              ('Salto más alto (m)', round(max(e_['altura'] for e_ in SALTOS), 2) if SALTOS else 's/d', '0.00'),
@@ -529,7 +532,7 @@ if A.json:
                        'lat': m['lat'], 'lon': m['lon'], 'v_in': m['v_in'], 'v_out': m['v_out'],
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
-        'acc': ACC_OK, 'salto_min': SALTO_MIN,
+        'acc': ACC_OK, 'salto_min': SALTO_MIN, 'salto_h_min': A.salto_h_min,
         'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'dist': e_['dist'], 'v_in': e_['v_in'],
                     'v_out': e_['v_out'], 'impacto_g': e_['impacto_g'], 'lat': e_['lat'], 'lon': e_['lon'], 'cd': e_['cd'],
                     'resultado': e_['resultado'], 'nota': e_['nota']} for e_ in SALTOS],

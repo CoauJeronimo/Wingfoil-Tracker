@@ -10,4 +10,4 @@ r = json.loads(runner.run('/tmp/sess', 'ci_out', 90, '30-10-2026', 3, '', True))
 print(r.get('resumen') or r)
 assert r['ok']
 print(r['log'])
-assert 'Saltos (vuelo >= 0.8 s): 3 | completos 2 | fallidos 1' in r['log']
+assert 'Saltos (vuelo >= 1 s y >= 0.5 m): 3 | completos 2 | fallidos 1' in r['log']
