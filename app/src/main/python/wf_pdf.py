@@ -469,7 +469,7 @@ def informe(R, path, sat=True, fetch=None):
     y += 22
     cols = [("Mapa", 24, 'center'), ("Nombre (KML)", 112, 'left'), ("Sec.", 22, 'center'), ("Hora", 42, 'center'), ("Transc.", 34, 'center'),
             ("Vel. ent.", 38, 'right'), ("Vel. sal.", 38, 'right'), ("Var. vel.", 40, 'right'),
-            ("Áng. ent.", 38, 'right'), ("Áng. sal.", 38, 'right'), ("Var. áng.", 40, 'right'), ("Observación", 0, 'left')]
+            ("Áng. ent.", 40, 'right'), ("Áng. sal.", 40, 'right'), ("Observación", 0, 'left')]
     used = sum(c[1] for c in cols); cols[-1] = (cols[-1][0], W - 2*M - used, 'left')
     def head(y):
         p.text(M, y, "Maniobras", 15, True, NAVY); y += 10
@@ -491,7 +491,7 @@ def informe(R, path, sat=True, fetch=None):
             seccion = min(int(m['cd'] // sl) + 1, NS) if sl else 1
             _g = lambda x_, sg=False: 's/d' if x_ is None else (f"{x_:+.0f}°" if sg else f"{x_:.0f}°")
             vals = [str(m['n']), m['nombre'], str(seccion), m['hora'], m['transcurrido'], _n(m['v_in'], 1), _n(m['v_out'], 1), _pct(m['variacion'], True),
-                    _g(m.get('ang_in')), _g(m.get('ang_out')), _g(m.get('ang_var'), True), m['nota']]
+                    _g(m.get('ang_in')), _g(m.get('ang_out')), m['nota']]
             xx = M
             for (nm, cw, al), val in zip(cols, vals):
                 tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
@@ -500,7 +500,7 @@ def informe(R, path, sat=True, fetch=None):
             y += 14
         y += 16
         if y < H - 60:
-            for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Vel. ent./Vel. sal. = velocidad media (kn) 40 m antes/después; Var. vel. = variación de la velocidad. Áng. ent./Áng. sal. = ángulo al viento del rumbo promedio de 10 a 3 s antes / de 3 a 10 s después del giro (0° = proa al viento, 90° = través, 180° = popa); Var. áng. = salida − entrada (+ = salió más abierto, hacia popa; − = más ceñido).', 7, W - 2*M):
+            for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Vel. ent./Vel. sal. = velocidad media (kn) 40 m antes/después; Var. vel. = variación de la velocidad. Áng. ent./Áng. sal. = grados entre el rumbo promedio de 10 a 3 s antes / de 3 a 10 s después del giro y el eje que se cruza: la popa redonda en las trasluchadas y el enfachado (proa al viento) en las viradas (0° = sobre el eje).', 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     SL = R.get('saltos', [])
     if SL:
