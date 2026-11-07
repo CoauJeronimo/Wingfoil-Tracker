@@ -347,6 +347,11 @@ class MainActivity : Activity() {
         label("Tramos a excluir (opcional, hora local)")
         val fExc = field("14:57:18-15:09:39, …", "", InputType.TYPE_CLASS_TEXT)
         box.addView(fExc)
+        box.addView(Button(this).apply {
+            text = "Ver mapa y elegir tramos (detecta salidas del agua)"; isAllCaps = false; textSize = 14f
+            setBackgroundColor(card); setTextColor(acc)
+            setOnClickListener { Tramos.abrir(this@MainActivity, dir, fExc.text.toString()) { fExc.setText(it) } }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(6) })
         val info = SessionInfo.load(dir)
         label("Intensidad del viento en nudos (opcional)")
         val fKn = field("ej. 16", info.optString("viento_kn", ""), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
