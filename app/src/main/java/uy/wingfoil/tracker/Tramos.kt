@@ -228,44 +228,133 @@ object Tramos {
         }
     }
 
-    /* ---------------- gráfico de velocidad en el tiempo ---------------- */
+    /* ---------------- gráfico de velocidad en el tiempo ----------------
+       Pellizcar: acerca/aleja el eje de tiempo. Arrastrar: desplaza. Arrastrar sobre una marca: la mueve.
+       Tocar: marca inicio/fin. Doble toque: acerca al tramo marcado (o vuelve a ver todo). */
     class GraficoView(ctx: Context, val e: Estado) : View(ctx) {
         private val m = e.m
         private val dens = ctx.resources.displayMetrics.density
-        private val pL = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.4f * dens; color = ACC }
+        private val pL = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.6f * dens; color = ACC }
+        private val pP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ACC }
         private val pF = Paint()
         private val pT = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MUT; textSize = 11 * dens }
+        private val pM = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 12 * dens; typeface = Typeface.DEFAULT_BOLD }
         private val vmax = max(15.0, m.v.max())
-        private fun gx(i: Int) = (pad() + (m.t[i] - m.t[0]) / max(m.t[m.n - 1] - m.t[0], 1.0) * (width - 2 * pad())).toFloat()
+        private val tA = m.t[0]; private val tB = m.t[m.n - 1]
+        private var v0 = tA; private var v1 = tB              // ventana visible (segundos)
+        private var arrastre = 0                               // 0 nada, 1 mueve inicio, 2 mueve fin, 3 desplaza
+        private var ultX = 0f; private var movio = false
+
         private fun pad() = 8 * dens
-        private fun gy(v: Double) = (height - 16 * dens - v / vmax * (height - 24 * dens)).toFloat()
+        private fun gxT(tt: Double) = (pad() + (tt - v0) / max(v1 - v0, 1.0) * (width - 2 * pad())).toFloat()
+        private fun gx(i: Int) = gxT(m.t[i])
+        private fun tDeX(x: Float) = v0 + (x - pad()) / (width - 2 * pad()) * (v1 - v0)
+        private fun gy(v: Double) = (height - 16 * dens - v / vmax * (height - 34 * dens)).toFloat()
+        private fun idxDeT(tt: Double): Int {
+            var lo = 0; var hi = m.n - 1
+            while (hi - lo > 1) { val mid = (lo + hi) / 2; if (m.t[mid] < tt) lo = mid else hi = mid }
+            return if (abs(m.t[lo] - tt) <= abs(m.t[hi] - tt)) lo else hi
+        }
+        private fun ventana(a: Double, b: Double) {
+            var x0 = a; var x1 = b
+            val minW = 20.0
+            if (x1 - x0 < minW) { val c = (x0 + x1) / 2; x0 = c - minW / 2; x1 = c + minW / 2 }
+            val w = x1 - x0
+            if (x0 < tA) { x0 = tA; x1 = tA + w }
+            if (x1 > tB) { x1 = tB; x0 = max(tA, tB - w) }
+            v0 = x0; v1 = x1; invalidate()
+        }
+        /** Acerca el gráfico al tramo marcado (con un margen) o, si no hay, a toda la sesión. */
+        fun enfocar() {
+            if (e.a >= 0 && e.b >= 0) { val mg = max(20.0, (m.t[e.b] - m.t[e.a]) * 0.25); ventana(m.t[e.a] - mg, m.t[e.b] + mg) }
+            else if (e.a >= 0) ventana(m.t[e.a] - 90, m.t[e.a] + 90)
+            else ventana(tA, tB)
+        }
+
+        private val sc = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(d: ScaleGestureDetector): Boolean {
+                val f = max(d.currentSpanX, 1f) / max(d.previousSpanX, 1f)
+                val c = tDeX(d.focusX); val w = (v1 - v0) / f
+                val k = (c - v0) / (v1 - v0)
+                ventana(c - k * w, c - k * w + w); arrastre = 0; movio = true; return true
+            }
+        })
+        private val gd = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(ev: MotionEvent): Boolean {
+                val tol = 22 * dens                                  // tocar sobre una marca no la reemplaza
+                if ((e.a >= 0 && abs(gx(e.a) - ev.x) < tol) || (e.b >= 0 && abs(gx(e.b) - ev.x) < tol)) return true
+                e.tocar(idxDeT(tDeX(ev.x))); return true
+            }
+            override fun onDoubleTap(ev: MotionEvent): Boolean {
+                val todo = v0 <= tA + 1 && v1 >= tB - 1
+                if (todo || e.a < 0) enfocar() else ventana(tA, tB)
+                return true
+            }
+        })
 
         override fun onTouchEvent(ev: MotionEvent): Boolean {
-            if (ev.action == MotionEvent.ACTION_UP) {
-                var best = 0; var bd = Float.MAX_VALUE
-                for (i in 0 until m.n) { val d = abs(gx(i) - ev.x); if (d < bd) { bd = d; best = i } }
-                e.tocar(best)
+            parent?.requestDisallowInterceptTouchEvent(true)
+            sc.onTouchEvent(ev)
+            if (ev.pointerCount > 1 || sc.isInProgress) { arrastre = 0; movio = true; return true }
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    ultX = ev.x; movio = false
+                    val tol = 22 * dens
+                    arrastre = when {
+                        e.b >= 0 && abs(gx(e.b) - ev.x) < tol -> 2
+                        e.a >= 0 && abs(gx(e.a) - ev.x) < tol -> 1
+                        else -> 3
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = ev.x - ultX
+                    if (abs(dx) > 2 * dens || movio) {
+                        movio = true
+                        when (arrastre) {
+                            1, 2 -> {
+                                val i = idxDeT(tDeX(ev.x))
+                                if (arrastre == 1) e.a = if (e.b >= 0) min(i, e.b - 1) else i
+                                else e.b = max(i, e.a + 1)
+                                e.onCambio()
+                            }
+                            3 -> { val dt = dx / (width - 2 * pad()) * (v1 - v0); ventana(v0 - dt, v1 - dt) }
+                        }
+                        ultX = ev.x
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> arrastre = 0
             }
+            if (!movio) gd.onTouchEvent(ev) else if (ev.actionMasked == MotionEvent.ACTION_DOWN) gd.onTouchEvent(ev)
             return true
         }
 
         override fun onDraw(c: Canvas) {
             c.drawColor(CARD)
+            c.save(); c.clipRect(0f, 0f, width.toFloat(), height.toFloat())
             fun banda(i0: Int, i1: Int, col: Int) { pF.color = col; c.drawRect(gx(i0), 0f, max(gx(i1), gx(i0) + 2), height.toFloat(), pF) }
             for ((i0, i1) in e.rangos()) banda(i0, i1, Color.argb(110, 255, 60, 90))
             if (e.a >= 0 && e.b >= 0) banda(e.a, e.b, Color.argb(120, 255, 160, 0))
             pF.color = Color.argb(70, 255, 255, 255)
             for (kn in listOf(4.0, 7.0, 12.0)) c.drawLine(pad(), gy(kn), width - pad(), gy(kn), pF)
+            val i0 = max(0, idxDeT(v0) - 1); val i1 = min(m.n - 1, idxDeT(v1) + 1)
             val p = Path()
-            for (i in 0 until m.n) {
-                if (i == 0 || m.seg[i] != m.seg[i - 1]) p.moveTo(gx(i), gy(m.v[i])) else p.lineTo(gx(i), gy(m.v[i]))
-            }
+            for (i in i0..i1) { if (i == i0 || m.seg[i] != m.seg[i - 1]) p.moveTo(gx(i), gy(m.v[i])) else p.lineTo(gx(i), gy(m.v[i])) }
             c.drawPath(p, pL)
+            val segPorPx = (v1 - v0) / max(width - 2 * pad(), 1f)
+            if (segPorPx < 0.25) for (i in i0..i1) c.drawCircle(gx(i), gy(m.v[i]), 2.2f * dens, pP)   // muy ampliado: se ve cada punto
             for ((i, col) in listOf(Pair(e.a, Color.rgb(0, 220, 90)), Pair(e.b, EXC))) if (i >= 0) {
                 pF.color = col; c.drawRect(gx(i) - 1.5f * dens, 0f, gx(i) + 1.5f * dens, height.toFloat(), pF)
+                c.drawCircle(gx(i), 7 * dens, 6 * dens, pF)
+                pM.color = col; val s = m.hora[i]; val w = pM.measureText(s)
+                val x = min(max(gx(i) + 9 * dens, pad()), width - pad() - w)
+                c.drawText(s, if (i == e.a && e.b >= 0 && x + w > gx(e.b) - 4 * dens) gx(i) - 9 * dens - w else x, 12 * dens, pM)
             }
-            c.drawText(m.hora[0], pad(), height - 3 * dens, pT)
-            val fin = m.hora[m.n - 1]; c.drawText(fin, width - pad() - pT.measureText(fin), height - 3 * dens, pT)
+            c.restore()
+            val h0 = m.hora[idxDeT(v0)]; val h1 = m.hora[idxDeT(v1)]
+            c.drawText(h0, pad(), height - 3 * dens, pT)
+            c.drawText(h1, width - pad() - pT.measureText(h1), height - 3 * dens, pT)
+            val zm = (tB - tA) / max(v1 - v0, 1.0)
+            if (zm > 1.05) { val s = String.format("x%.0f", zm); c.drawText(s, width / 2f - pT.measureText(s) / 2, height - 3 * dens, pT) }
             c.drawText("7 kn", pad() + 2, gy(7.0) - 2, pT)
         }
     }
@@ -302,13 +391,14 @@ object Tramos {
         val mapaV = MapaView(act, e)
         root.addView(mapaV, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = dp(6) })
         val graf = GraficoView(act, e)
-        root.addView(graf, LinearLayout.LayoutParams(MATCH_PARENT, dp(96)).apply { topMargin = dp(6) })
+        root.addView(graf, LinearLayout.LayoutParams(MATCH_PARENT, dp(150)).apply { topMargin = dp(6) })
+        root.addView(tv("Gráfico: pellizcá para ampliar el tiempo, arrastrá para moverte y arrastrá las marcas para ajustar el inicio y el fin. Doble toque: acerca al tramo marcado.", 12f, MUT))
         val selInfo = tv("", 14f, SEL, true).apply { setPadding(0, dp(6), 0, 0) }
         root.addView(selInfo)
         val addB = Button(act).apply { text = "Agregar este tramo"; isAllCaps = false; setBackgroundColor(SEL); setTextColor(Color.BLACK); isEnabled = false }
         root.addView(addB, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(4) })
         val lista = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(ScrollView(act).apply { addView(lista) }, LinearLayout.LayoutParams(MATCH_PARENT, dp(130)).apply { topMargin = dp(6) })
+        root.addView(ScrollView(act).apply { addView(lista) }, LinearLayout.LayoutParams(MATCH_PARENT, dp(110)).apply { topMargin = dp(6) })
         val fila = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL }
         val cancel = Button(act).apply { text = "Cancelar"; isAllCaps = false }
         val ok = Button(act).apply { text = "Listo"; isAllCaps = false; setBackgroundColor(ACC); setTextColor(Color.BLACK) }
@@ -329,7 +419,7 @@ object Tramos {
                 r.addView(cb, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
                 r.addView(tv("ver", 13f, ACC, true).apply {
                     setPadding(dp(10), dp(8), dp(6), dp(8))
-                    setOnClickListener { e.a = m.idxDesde(tr.ini); e.b = m.idxHasta(tr.fin); e.onCambio() }
+                    setOnClickListener { e.a = m.idxDesde(tr.ini); e.b = m.idxHasta(tr.fin); e.onCambio(); graf.enfocar() }
                 })
                 if (!tr.detectado) r.addView(tv("quitar", 13f, EXC, true).apply {
                     setPadding(dp(8), dp(8), dp(4), dp(8))
@@ -338,7 +428,10 @@ object Tramos {
                 lista.addView(r)
             }
         }
+        var bAnt = -1
         e.onCambio = {
+            if (e.b >= 0 && bAnt < 0) graf.enfocar()          // recién marcado el fin: el gráfico se acerca solo al tramo
+            bAnt = e.b
             selInfo.text = when {
                 e.a >= 0 && e.b >= 0 -> String.format("Inicio %s · Fin %s · %.1f min", m.hora[e.a], m.hora[e.b], dur(m, e.a, e.b)).replace('.', ',')
                 e.a >= 0 -> "Inicio ${m.hora[e.a]} · ahora tocá el fin"
