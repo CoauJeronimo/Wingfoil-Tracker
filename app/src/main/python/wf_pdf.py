@@ -500,7 +500,7 @@ def informe(R, path, sat=True, fetch=None):
             y += 14
         y += 16
         if y < H - 60:
-            for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Vel. ent./Vel. sal. = velocidad media (kn) 40 m antes/después; Var. vel. = variación de la velocidad. Áng. ent./Áng. sal. = ángulo al viento del rumbo de los 40 m antes/después del giro (0° = proa al viento, 90° = través, 180° = popa); Var. áng. = salida − entrada (+ = salió más abierto, hacia popa; − = más ceñido).', 7, W - 2*M):
+            for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Vel. ent./Vel. sal. = velocidad media (kn) 40 m antes/después; Var. vel. = variación de la velocidad. Áng. ent./Áng. sal. = ángulo al viento del rumbo promedio de 10 a 3 s antes / de 3 a 10 s después del giro (0° = proa al viento, 90° = través, 180° = popa); Var. áng. = salida − entrada (+ = salió más abierto, hacia popa; − = más ceñido).', 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     SL = R.get('saltos', [])
     if SL:
