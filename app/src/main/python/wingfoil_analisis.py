@@ -245,6 +245,18 @@ def blanco(a, b):                      # caída SOSTENIDA: >= 2 muestras seguida
                 if r >= 2: return True
             else: r = 0
     return False
+def twa(h):                            # ángulo al viento: 0° = proa al viento, 90° = través, 180° = popa
+    return abs(((h - WIND_FROM) + 180) % 360 - 180)
+def ang40(i, antes):                   # rumbo de la recta de los 40 m previos (o posteriores) al giro, mismo segmento
+    j = i
+    if antes:
+        while j > 0 and seg[j-1] == seg[i] and cd[i] - cd[j] < 40: j -= 1
+        a_, b_ = j, i
+    else:
+        while j < n-1 and seg[j+1] == seg[i] and cd[j] - cd[i] < 40: j += 1
+        a_, b_ = i, j
+    if cd[b_] - cd[a_] < 20: return None          # menos de 20 m de recorrido: sin dato
+    return round(twa(brg(lat[a_], lon[a_], lat[b_], lon[b_])))      # grados enteros: la variación cuadra con lo que se ve
 fin = []
 for m in dd:
     i = min(range(n), key=lambda q: abs(t[q]-m['t'])); c0 = cd[i]; SG = seg[i]
@@ -252,6 +264,8 @@ for m in dd:
     if vi is None or vi < 6: continue          # no estaba foileando
     fin_seg = max(cd[q] for q in range(i, n) if seg[q] == SG)
     cayo_agua = SG in corte and fin_seg < c0 + 40          # la señal se corta (teléfono bajo el agua) antes de 40 m
+    ai_, ao_ = ang40(i, True), ang40(i, False)
+    m.update({'ang_in': ai_, 'ang_out': ao_, 'ang_var': (ao_ - ai_) if ai_ is not None and ao_ is not None else None})
     m.update({'resultado': 'Fallida' if (blanco(c0, c0+40) or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
               'nota': 'corte de señal tras el giro' if cayo_agua else ''}); fin.append(m)
 c = {}
@@ -400,7 +414,7 @@ for key, (ic, nm) in icons.items():
     if not L: continue
     k_.append(f'<Folder><name>{esc(nm)} ({len(L)})</name>')
     for m in L:
-        h = hora(m['t']); d = f"Hora: {h}<br/>Vel. entrada (40m): {m['v_in']:.1f} kn | Vel. salida (40m): {('%.1f' % m['v_out']) if m['v_out'] is not None else 's/d'} kn" + (f"<br/>Nota: {m['nota']}" if m['nota'] else '')
+        h = hora(m['t']); d = f"Hora: {h}<br/>Vel. entrada (40m): {m['v_in']:.1f} kn | Vel. salida (40m): {('%.1f' % m['v_out']) if m['v_out'] is not None else 's/d'} kn" + (f"<br/>Ángulo al viento: entrada {m['ang_in']:.0f}° | salida {m['ang_out']:.0f}° | variación {m['ang_var']:+.0f}°" if m['ang_var'] is not None else '') + (f"<br/>Nota: {m['nota']}" if m['nota'] else '')
         k_.append(f'<Placemark><name>{esc(m["tipo"])} #{m["numero_grupo"]} — {h} ({m["resultado"]})</name><description><![CDATA[{d}]]></description><styleUrl>#{ic}</styleUrl><Point><coordinates>{m["lon"]:.7f},{m["lat"]:.7f},0</coordinates></Point></Placemark>')
     k_.append('</Folder>')
 k_.append('</Folder>')
@@ -439,9 +453,9 @@ for r, p in enumerate(track, 2):
 LR = len(track)+1; wt.freeze_panes = 'A2'
 wm = wb.create_sheet('Maniobras', 0); wm.sheet_view.showGridLines = False
 wm['A1'] = f'Track Wingfoil {FECHA} — Viradas y Trasluchadas (Completa vs Fallida)'; wm['A1'].font = Font(name=F, bold=True, size=14)
-wm['A2'] = (f'Viento desde {VIENTO}. "Completa" = sin caída SOSTENIDA (2+ muestras seguidas) bajo 4 nudos en los 40m posteriores al giro. "Fallida" = caída sostenida bajo 4 nudos en esos 40m. Si la señal GPS se corta (teléfono bajo el agua) antes de completar esos 40m, también es Fallida. Se excluye toda maniobra con velocidad de entrada (40m previos) < 6 nudos y los giros que no cruzan limpiamente ningún eje.')
-wm.merge_cells('A2:K2'); wm.row_dimensions[2].height = 40; wm['A2'].font = Font(name=F, italic=True, size=9, color='555555'); wm['A2'].alignment = Alignment(wrap_text=True, vertical='top')
-for ci, h in enumerate(['Nombre (igual que en el KML)', 'Tipo', 'Resultado', 'Tiempo transcurrido', 'Hora local', 'Latitud', 'Longitud', 'Vel. entrada 40m (kn)', 'Vel. salida 40m (kn)', 'Variación salida vs entrada (%)', 'Observación'], 1):
+wm['A2'] = (f'Viento desde {VIENTO}. "Completa" = sin caída SOSTENIDA (2+ muestras seguidas) bajo 4 nudos en los 40m posteriores al giro. "Fallida" = caída sostenida bajo 4 nudos en esos 40m. Si la señal GPS se corta (teléfono bajo el agua) antes de completar esos 40m, también es Fallida. Se excluye toda maniobra con velocidad de entrada (40m previos) < 6 nudos y los giros que no cruzan limpiamente ningún eje. Ángulo al viento = ángulo entre el rumbo de la recta de los 40m previos (o posteriores) al giro y la dirección de donde viene el viento: 0° = proa al viento, 90° = través, 180° = popa. Variación del ángulo = salida − entrada (+ = salió más abierto, hacia popa; − = salió más ceñido).')
+wm.merge_cells('A2:N2'); wm.row_dimensions[2].height = 52; wm['A2'].font = Font(name=F, italic=True, size=9, color='555555'); wm['A2'].alignment = Alignment(wrap_text=True, vertical='top')
+for ci, h in enumerate(['Nombre (igual que en el KML)', 'Tipo', 'Resultado', 'Tiempo transcurrido', 'Hora local', 'Latitud', 'Longitud', 'Vel. entrada 40m (kn)', 'Vel. salida 40m (kn)', 'Variación salida vs entrada (%)', 'Ángulo al viento entrada 40m (°)', 'Ángulo al viento salida 40m (°)', 'Variación del ángulo (°)', 'Observación'], 1):
     x = wm.cell(4, ci, h); x.font = HFo; x.fill = HF; x.border = bd; x.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 wm.row_dimensions[4].height = 30
 for r, m in enumerate(M, 5):
@@ -449,10 +463,15 @@ for r, m in enumerate(M, 5):
     vals = [m['nombre'], m['tipo'], m['resultado'], f"{int(tr//60):02d}:{int(tr%60):02d}", hora(m['t']), round(m['lat'], 6), round(m['lon'], 6), round(m['v_in'], 2), round(m['v_out'], 2) if m['v_out'] is not None else None]
     for ci, val in enumerate(vals, 1):
         x = wm.cell(r, ci, val); x.font = N; x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='left' if ci == 1 else 'center')
-    x = wm.cell(r, 11, m['nota']); x.font = N; x.fill = fl; x.border = bd
+    for ci, val in ((11, m['ang_in']), (12, m['ang_out'])):
+        x = wm.cell(r, ci, round(val, 0) if val is not None else None); x.font = N; x.fill = fl; x.border = bd
+        x.alignment = Alignment(horizontal='center'); x.number_format = '0"°"'
+    x = wm.cell(r, 13, f'=IF(OR(K{r}="",L{r}=""),"s/d",L{r}-K{r})'); x.font = N; x.fill = fl; x.border = bd
+    x.alignment = Alignment(horizontal='center'); x.number_format = '+0"°";-0"°";0"°"'
+    x = wm.cell(r, 14, m['nota']); x.font = N; x.fill = fl; x.border = bd
     x = wm.cell(r, 10, f'=IF(OR(H{r}="",I{r}="",H{r}=0),"s/d",(I{r}-H{r})/H{r})'); x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
     x.number_format = '+0.0%;[Red]-0.0%;0.0%'; x.font = N
-for col, w in zip('ABCDEFGHIJK', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 26]): wm.column_dimensions[col].width = w
+for col, w in zip('ABCDEFGHIJKLMN', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 18, 18, 16, 26]): wm.column_dimensions[col].width = w
 wm.freeze_panes = 'A5'
 wr = wb.create_sheet('Resumen', 0); wr.sheet_view.showGridLines = False
 wr['B2'] = f'Resumen del recorrido — {A.nombre} ({FECHA})' if A.nombre else f'Resumen del recorrido — Wingfoil ({FECHA})'; wr['B2'].font = Font(name=F, bold=True, size=14)
@@ -543,6 +562,7 @@ if A.json:
                        'transcurrido': f"{int((m['t']-T0)//60):02d}:{int((m['t']-T0)%60):02d}", 'hora': hora(m['t']),
                        'lat': m['lat'], 'lon': m['lon'], 'v_in': m['v_in'], 'v_out': m['v_out'],
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
+                       'ang_in': m['ang_in'], 'ang_out': m['ang_out'], 'ang_var': m['ang_var'],
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
         'acc': ACC_OK, 'salto_min': SALTO_MIN, 'salto_h_min': A.salto_h_min,
         'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'dist': e_['dist'], 'v_in': e_['v_in'],

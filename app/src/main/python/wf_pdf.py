@@ -467,15 +467,16 @@ def informe(R, path, sat=True, fetch=None):
         p.text(W - M - 6, y + 10.5, p.fit(v_, 8.5, 230, True), 8.5, True, '#C00000' if neg else NAVY, 'right')
         y += 15
     y += 22
-    cols = [("Mapa", 28, 'center'), ("Nombre (KML)", 122, 'left'), ("Sec.", 26, 'center'), ("Hora", 46, 'center'), ("Transc.", 38, 'center'),
-            ("Entrada", 46, 'right'), ("Salida", 46, 'right'), ("Variación", 50, 'right'), ("Observación", 0, 'left')]
+    cols = [("Mapa", 24, 'center'), ("Nombre (KML)", 112, 'left'), ("Sec.", 22, 'center'), ("Hora", 42, 'center'), ("Transc.", 34, 'center'),
+            ("Vel. ent.", 38, 'right'), ("Vel. sal.", 38, 'right'), ("Var. vel.", 40, 'right'),
+            ("Áng. ent.", 38, 'right'), ("Áng. sal.", 38, 'right'), ("Var. áng.", 40, 'right'), ("Observación", 0, 'left')]
     used = sum(c[1] for c in cols); cols[-1] = (cols[-1][0], W - 2*M - used, 'left')
     def head(y):
         p.text(M, y, "Maniobras", 15, True, NAVY); y += 10
         p.rect(M, y, W - 2*M, 18, fill=NAVY); xx = M
         for nm, cw, al in cols:
             tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
-            p.text(tx, y + 12, nm + (" kn" if nm in ("Entrada", "Salida") else ""), 7.3, True, '#FFFFFF', al); xx += cw
+            p.text(tx, y + 12, nm, 7.0, True, '#FFFFFF', al); xx += cw
         return y + 18
     MS = R['maniobras']
     if not MS:
@@ -488,16 +489,18 @@ def informe(R, path, sat=True, fetch=None):
                 p.page(); y = head(50)
             p.rect(M, y, W - 2*M, 14, fill=FILL[(m['tipo'], m['resultado'])])
             seccion = min(int(m['cd'] // sl) + 1, NS) if sl else 1
-            vals = [str(m['n']), m['nombre'], str(seccion), m['hora'], m['transcurrido'], _n(m['v_in'], 1), _n(m['v_out'], 1), _pct(m['variacion'], True), m['nota']]
+            _g = lambda x_, sg=False: 's/d' if x_ is None else (f"{x_:+.0f}°" if sg else f"{x_:.0f}°")
+            vals = [str(m['n']), m['nombre'], str(seccion), m['hora'], m['transcurrido'], _n(m['v_in'], 1), _n(m['v_out'], 1), _pct(m['variacion'], True),
+                    _g(m.get('ang_in')), _g(m.get('ang_out')), _g(m.get('ang_var'), True), m['nota']]
             xx = M
             for (nm, cw, al), val in zip(cols, vals):
                 tx = xx + 5 if al == 'left' else xx + cw/2 if al == 'center' else xx + cw - 5
-                col = '#C00000' if nm == 'Variación' and val.startswith('-') else '#222222'
+                col = '#C00000' if nm == 'Var. vel.' and val.startswith('-') else '#222222'
                 p.text(tx, y + 10, p.fit(val, 7.8, cw - 6), 7.8, nm in ('Mapa', 'Nombre (KML)'), col, al); xx += cw
             y += 14
         y += 16
         if y < H - 60:
-            for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Entrada/Salida = velocidad media 40 m antes/después.', 7, W - 2*M):
+            for ln in p.wrap('"Completa" = sin caída sostenida (2+ muestras seguidas) bajo 4 nudos en los 40 m posteriores al giro; "Fallida" = con esa caída, o si la señal GPS se corta antes de completar los 40 m. Se excluyen las maniobras con entrada (40 m previos) menor a 6 nudos y los giros complejos. Vel. ent./Vel. sal. = velocidad media (kn) 40 m antes/después; Var. vel. = variación de la velocidad. Áng. ent./Áng. sal. = ángulo al viento del rumbo de los 40 m antes/después del giro (0° = proa al viento, 90° = través, 180° = popa); Var. áng. = salida − entrada (+ = salió más abierto, hacia popa; − = más ceñido).', 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
     SL = R.get('saltos', [])
     if SL:
