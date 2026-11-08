@@ -74,7 +74,7 @@ object Video {
                 } else {
                     val u = uri!!
                     AlertDialog.Builder(act).setTitle("Video listo")
-                        .setMessage("Quedó guardado en Descargas/WingFoil.")
+                        .setMessage("Quedó guardado en Descargas/WingFoil." + if (sinFoto) "\n\nNo se pudo bajar la foto satelital (sin conexión a internet o sin imágenes de esa zona): el video salió con fondo liso." else "")
                         .setPositiveButton("Ver") { _, _ ->
                             try { act.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(u, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch (_: Exception) { }
                         }
@@ -86,6 +86,23 @@ object Video {
                 }
             }
         }.start()
+    }
+
+    @Volatile private var sinFoto = false
+
+    /** Las zonas sin imágenes devuelven una tesela gris con el texto "Map data not yet available": se descarta. */
+    private fun esFoto(b: ByteArray): Boolean {
+        val o = BitmapFactory.Options().apply { inSampleSize = 8 }
+        val bm = BitmapFactory.decodeByteArray(b, 0, b.size, o) ?: return false
+        var gris = 0; var tot = 0
+        for (y in 0 until bm.height step 2) for (x in 0 until bm.width step 2) {
+            val c = bm.getPixel(x, y); val r = Color.red(c); val g = Color.green(c); val bl = Color.blue(c)
+            val mx = max(r, max(g, bl)); val mn = min(r, min(g, bl))
+            if (mx - mn < 10 && mx > 150) gris++
+            tot++
+        }
+        bm.recycle()
+        return tot == 0 || gris < tot * 0.85
     }
 
     private fun merc(lat: Double, lon: Double, z: Int): DoubleArray {
@@ -145,6 +162,20 @@ object Video {
             if (nt <= 300) break
             z--
         }
+        // hay zonas sin imágenes de alta resolución: se prueba la tesela del centro y se baja el zoom hasta encontrar foto real
+        msg("Buscando la foto satelital de la zona…")
+        Tiles.cacheDir = File(act.filesDir, "tiles").apply { mkdirs() }; Tiles.reset()
+        run {
+            val cLat = (latMin + latMax) / 2; val cLon = (lonMin + lonMax) / 2
+            var zz = z
+            while (zz >= max(10, z - 5)) {
+                val m = merc(cLat, cLon, zz); val nn = 1 shl zz
+                val b = Tiles.get(String.format(Locale.US, TILE_URL, zz, floor(m[1] / 256).toInt(), ((floor(m[0] / 256).toInt() % nn) + nn) % nn))
+                if (b != null && esFoto(b)) { z = zz; break }
+                if (Tiles.sinRed()) break
+                zz--
+            }
+        }
         val X = DoubleArray(n); val Y = DoubleArray(n)
         for (i in 0 until n) { val m = merc(lat[i], lon[i], z); X[i] = m[0]; Y[i] = m[1] }
         val mPorPx = 156543.03392 * cos(lat[0] * PI / 180) / (1 shl z)
@@ -152,7 +183,6 @@ object Video {
 
         // ---------- teselas satelitales
         msg("Descargando la foto satelital…")
-        Tiles.cacheDir = File(act.filesDir, "tiles").apply { mkdirs() }; Tiles.reset()
         val p0 = merc(latMax, lonMin, z); val p1 = merc(latMin, lonMax, z)
         val tx0 = floor(p0[0] / 256).toInt(); val tx1 = floor(p1[0] / 256).toInt()
         val ty0 = floor(p0[1] / 256).toInt(); val ty1 = floor(p1[1] / 256).toInt()
@@ -165,6 +195,7 @@ object Video {
         for (ty in ty0..ty1) for (tx in tx0..tx1) {
             if (ty < 0 || ty >= nmax) continue
             val b = Tiles.get(String.format(Locale.US, TILE_URL, z, ty, ((tx % nmax) + nmax) % nmax)) ?: continue
+            if (!esFoto(b)) continue
             BitmapFactory.decodeByteArray(b, 0, b.size, opt)?.let { tiles[tx.toLong() * 100000L + ty] = it }
         }
         // fondo lejano de menor resolución (lo que se ve hacia el horizonte con la cámara inclinada)
@@ -176,6 +207,7 @@ object Video {
         if ((bx1 - bx0 + 1) * (by1 - by0 + 1) <= 64) for (ty in by0..by1) for (tx in bx0..bx1) {
             if (ty < 0 || ty >= nb) continue
             val b = Tiles.get(String.format(Locale.US, TILE_URL, zb, ty, ((tx % nb) + nb) % nb)) ?: continue
+            if (!esFoto(b)) continue
             val bm = BitmapFactory.decodeByteArray(b, 0, b.size, opt) ?: continue
             val l = (tx * 256.0 * fac - tx0 * 256.0).toFloat(); val t_ = (ty * 256.0 * fac - ty0 * 256.0).toFloat(); val sz = (256.0 * fac).toFloat()
             fondo.add(Pair(RectF(l, t_, l + sz + fac, t_ + sz + fac), bm))
@@ -341,6 +373,7 @@ object Video {
         enc.stop(); enc.release(); surf.release()
         if (muxOn) mux.stop()
         mux.release()
+        sinFoto = tiles.isEmpty() && fondo.isEmpty()
         for (b in tiles.values) b.recycle()
         for ((_, bm) in fondo) bm.recycle()
 

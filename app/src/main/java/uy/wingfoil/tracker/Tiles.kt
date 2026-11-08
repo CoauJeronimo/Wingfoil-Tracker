@@ -11,7 +11,8 @@ import java.security.MessageDigest
  */
 object Tiles {
     @JvmStatic var cacheDir: File? = null
-    @Volatile private var offline = false   // si una descarga falla por red, no se insiste con las demás
+    @Volatile private var offline = false   // tras 3 fallas de red seguidas, no se insiste con las demás
+    @Volatile private var fallas = 0
 
     @JvmStatic
     fun get(url: String): ByteArray? {
@@ -26,14 +27,15 @@ object Tiles {
             c.setRequestProperty("User-Agent", "WingfoilTracker/1.2 (Android)")
             if (c.responseCode != 200) { c.disconnect(); return null }
             val b = c.inputStream.use { it.readBytes() }
-            c.disconnect()
+            c.disconnect(); fallas = 0
             if (f != null && b.size > 100) try { f.writeBytes(b) } catch (_: Exception) { }
             b
         } catch (e: java.io.IOException) {
-            offline = true
+            fallas++; if (fallas >= 3) offline = true
             null
         }
     }
 
-    @JvmStatic fun reset() { offline = false }
+    @JvmStatic fun reset() { offline = false; fallas = 0 }
+    @JvmStatic fun sinRed(): Boolean = offline
 }
