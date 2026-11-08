@@ -289,22 +289,23 @@ class MainActivity : Activity() {
             })
             val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val analyze = Button(this).apply {
-                text = "📊 Analizar"; isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 2f)
+                text = "Analizar"; isAllCaps = false; textSize = 19f; typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE); setShadowLayer(6f, 0f, 0f, Color.BLACK)
+                background = GraficoFondo(resources.displayMetrics.density)
                 setOnClickListener { analyzeDialog(d) }
             }
             val share = Button(this).apply {
-                text = "📤 ZIP"; isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f)
+                text = "📦 Descarga Data"; isAllCaps = false; textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.6f)
                 setOnClickListener { share(d) }
             }
             val gpxB = Button(this).apply {
-                text = "🗺 GPX"; isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f)
+                text = "🗺 Export GPX"; isAllCaps = false; textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.5f)
                 setOnClickListener { shareGpx(d) }
             }
             val del = Button(this).apply {
-                text = "🗑"; layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+                text = "🗑"; layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 0.7f)
                 setOnClickListener {
                     AlertDialog.Builder(this@MainActivity).setTitle("¿Borrar esta sesión?")
                         .setMessage("Se borran la grabación, su análisis y los archivos de esta sesión guardados en Descargas/WingFoil (ZIP, GPX, PDF, KML y Excel).")
@@ -317,7 +318,8 @@ class MainActivity : Activity() {
                         .setNegativeButton("Cancelar", null).show()
                 }
             }
-            btns.addView(analyze); btns.addView(share); btns.addView(gpxB); btns.addView(del)
+            row.addView(analyze, LinearLayout.LayoutParams(MATCH_PARENT, dp(58)).apply { topMargin = dp(6) })
+            btns.addView(share); btns.addView(gpxB); btns.addView(del)
             row.addView(btns)
             row.addView(Button(this).apply {
                 text = "🎬 Video del recorrido (45 s)"; isAllCaps = false

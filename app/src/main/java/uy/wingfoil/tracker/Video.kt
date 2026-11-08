@@ -46,8 +46,10 @@ import kotlin.math.tan
 object Video {
     private const val TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d"
     private const val FPS = 30
-    private const val DUR_ANIM = 43.0          // segundos de recorrido animado
-    private const val DUR_TOTAL = 45.0         // + 2 s quieto al final
+    private const val T_INTRO = 3.5            // paneo 360° del área antes de arrancar
+    private const val T_OUTRO = 4.0            // paneo 360° del área al terminar
+    private const val DUR_TOTAL = 45.0
+    private const val DUR_ANIM = DUR_TOTAL - T_INTRO - T_OUTRO   // segundos de recorrido animado
     private val SPD = intArrayOf(Color.WHITE, Color.rgb(0, 216, 74), Color.rgb(255, 212, 0), Color.rgb(255, 45, 45))
     private fun bk(v: Double) = if (v < 4) 0 else if (v < 7) 1 else if (v < 12) 2 else 3
 
@@ -290,16 +292,21 @@ object Video {
         val pPalo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255); strokeWidth = 4 * (corto / 1080f) }
         // rumbo inicial de la cámara: a lo largo del lado más largo de la zona; después gira 90° en todo el video
         val th0 = if (anchoM > altoM) 0.0 else 90.0
-        val radioT = 6.0 * max(W, H) / esc            // teselas a dibujar: hasta esta distancia de la cámara (px de mundo)
         val pt = FloatArray(2)
         var hecho = 0                                  // último índice ya agregado al trazo
         var camX = X[0]; var camY = Y[0]
         val tau = 0.18                                 // suavizado de la cámara (s de video): bien pegada al cursor, que es el centro del giro
         val total = (DUR_TOTAL * FPS).toInt()
+        // paneo del área: centro de la zona y vista amplia que la abarca entera
+        val acX = (X.min() + X.max()) / 2; val acY = (Y.min() + Y.max()) / 2
+        val escAmplio = min(esc.toDouble(), corto / (max(anchoM, altoM) * 1.3 / mPorPx)).toFloat()
+        fun suave(x: Double): Double { val c_ = min(1.0, max(0.0, x)); return c_ * c_ * (3 - 2 * c_) }
+        val tFin = T_INTRO + DUR_ANIM
+        var camFinX = 0.0; var camFinY = 0.0
         fun busca(ta: Double): Int { var lo = 0; var hi = n - 1; while (hi - lo > 1) { val m = (lo + hi) / 2; if (act_[m] <= ta) lo = m else hi = m }; return lo }
         for (f in 0 until total) {
             val tv = f.toDouble() / FPS
-            val ta = totAct * min(1.0, tv / DUR_ANIM)
+            val ta = totAct * min(1.0, max(0.0, tv - T_INTRO) / DUR_ANIM)
             val i = busca(ta); val k = min(i + 1, n - 1)
             val w = if (k > i && act_[k] > act_[i] && sg[k] == sg[i]) (ta - act_[i]) / (act_[k] - act_[i]) else 0.0
             val cx = X[i] + (X[k] - X[i]) * w; val cy = Y[i] + (Y[k] - Y[i]) * w
@@ -314,17 +321,32 @@ object Video {
             }
             // cámara: sigue al cursor con suavizado y nunca lo deja fuera del 70% central
             val al = 1 - exp(-1.0 / (FPS * tau))
-            if (f == 0) { camX = cx; camY = cy } else { camX += (cx - camX) * al; camY += (cy - camY) * al }
-            val limX = W * 0.12 / esc; val limY = H * 0.12 / esc
-            camX = min(max(camX, cx - limX), cx + limX); camY = min(max(camY, cy - limY), cy + limY)
+            var e = esc; val th: Double
+            if (tv < T_INTRO) {                                           // paneo inicial: del área completa al cursor
+                val bl = suave((tv - (T_INTRO - 0.9)) / 0.9)
+                camX = acX + (cx - acX) * bl; camY = acY + (cy - acY) * bl
+                e = (escAmplio * Math.pow((esc / escAmplio).toDouble(), bl)).toFloat()
+                th = th0 + 360.0 * suave(tv / T_INTRO)
+            } else if (tv < tFin) {                                       // recorrido: cámara pegada al cursor
+                camX += (cx - camX) * al; camY += (cy - camY) * al
+                val limX = W * 0.12 / esc; val limY = H * 0.12 / esc
+                camX = min(max(camX, cx - limX), cx + limX); camY = min(max(camY, cy - limY), cy + limY)
+                camFinX = camX; camFinY = camY
+                th = th0 + 360.0 + 360.0 * (tv - T_INTRO) / DUR_ANIM
+            } else {                                                      // paneo final: del cursor al área completa
+                val bl = suave((tv - tFin) / 0.9)
+                camX = camFinX + (acX - camFinX) * bl; camY = camFinY + (acY - camFinY) * bl
+                e = (esc * Math.pow((escAmplio / esc).toDouble(), bl)).toFloat()
+                th = th0 + 720.0 + 360.0 * suave((tv - tFin) / T_OUTRO)
+            }
+            val radioT = 6.0 * max(W, H) / e
 
             val c: Canvas = surf.lockHardwareCanvas()
             try {
-                val th = th0 + 360.0 * tv / DUR_TOTAL                          // una vuelta completa alrededor del cursor
                 c.drawColor(Color.rgb(14, 42, 71))
                 c.save()
                 c.concat(persp)                                                   // plano -> pantalla (perspectiva)
-                c.rotate((-th).toFloat()); c.scale(esc, esc); c.translate(-camX.toFloat(), -camY.toFloat())   // mundo -> plano
+                c.rotate((-th).toFloat()); c.scale(e, e); c.translate(-camX.toFloat(), -camY.toFloat())   // mundo -> plano
                 for ((rf, bm) in fondo) c.drawBitmap(bm, null, rf, pBmp)
                 val vx0 = floor((camX + OX - radioT) / 256).toInt(); val vx1 = floor((camX + OX + radioT) / 256).toInt()
                 val vy0 = floor((camY + OY - radioT) / 256).toInt(); val vy1 = floor((camY + OY + radioT) / 256).toInt()
@@ -333,21 +355,21 @@ object Video {
                     val l = ((tx - tx0) * 256).toFloat(); val tp = ((ty - ty0) * 256).toFloat()
                     c.drawBitmap(b, null, RectF(l, tp, l + 256.5f, tp + 256.5f), pBmp)
                 }
-                pSombra.strokeWidth = 14 * u / esc
+                pSombra.strokeWidth = 14 * u / e
                 for (p in trazo) c.drawPath(p, pSombra)
-                pTrazo.strokeWidth = 8 * u / esc
+                pTrazo.strokeWidth = 8 * u / e
                 for (b in 0..3) { pTrazo.color = SPD[b]; c.drawPath(trazo[b], pTrazo) }
                 if (hecho < n && i < n) {          // último tramo hasta el cursor
                     pTrazo.color = SPD[bk(vel)]
                     c.drawLine(X[i].toFloat(), Y[i].toFloat(), cx.toFloat(), cy.toFloat(), pTrazo)
                 }
-                c.drawOval(RectF((cx - 16 * u / esc).toFloat(), (cy - 16 * u / esc).toFloat(), (cx + 16 * u / esc).toFloat(), (cy + 16 * u / esc).toFloat()), pSomb)
+                c.drawOval(RectF((cx - 16 * u / e).toFloat(), (cy - 16 * u / e).toFloat(), (cx + 16 * u / e).toFloat(), (cy + 16 * u / e).toFloat()), pSomb)
                 c.restore()
                 // cielo / bruma hacia el horizonte
                 c.drawRect(0f, 0f, W.toFloat(), H * 0.34f, cielo)
                 // cursor "parado" sobre el agua: posición en pantalla + palito + bola
                 val rot = Math.toRadians(-th)
-                val wx = (cx - camX) * esc; val wy = (cy - camY) * esc
+                val wx = (cx - camX) * e; val wy = (cy - camY) * e
                 pt[0] = (wx * cos(rot) - wy * Math.sin(rot)).toFloat(); pt[1] = (wx * Math.sin(rot) + wy * cos(rot)).toFloat()
                 persp.mapPoints(pt)
                 val alto = 34 * u
@@ -355,7 +377,8 @@ object Video {
                 pPunto.color = Color.BLACK; c.drawCircle(pt[0], pt[1] - alto, 19 * u, pPunto)
                 pPunto.color = Color.WHITE; c.drawCircle(pt[0], pt[1] - alto, 15 * u, pPunto)
                 pPunto.color = SPD[bk(vel)]; c.drawCircle(pt[0], pt[1] - alto, 9 * u, pPunto)
-                // datos: velocidad del momento y distancia recorrida
+                // datos: velocidad del momento y distancia recorrida (no en el paneo inicial)
+                if (tv >= T_INTRO - 0.3) {
                 val mg = 40 * u
                 val sv = String.format(Locale("es"), "%.1f", vel); val sd = if (dd < 1000) String.format(Locale("es"), "%.0f m", dd) else String.format(Locale("es"), "%.2f km", dd / 1000)
                 val wv = pVel.measureText(sv) + 16 * u + pUni.measureText("kn")
@@ -365,6 +388,7 @@ object Video {
                 c.drawText(sv, mg + 32 * u, top + 104 * u, pVel)
                 c.drawText("kn", mg + 32 * u + pVel.measureText(sv) + 16 * u, top + 104 * u, pUni)
                 c.drawText(sd, mg + 32 * u, top + 180 * u, pDist)
+                }
             } finally { surf.unlockCanvasAndPost(c) }
             drenar(false)
             if (f % 30 == 0) msg("Generando video… ${100 * f / total}%")
