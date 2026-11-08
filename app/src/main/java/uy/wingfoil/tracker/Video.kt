@@ -40,7 +40,8 @@ import kotlin.math.tan
 /**
  * Video de la sesión (estilo Relive): cámara inclinada (como un drone, ~50° desde la vertical) que sigue el
  * recorrido sobre la foto satelital y da una vuelta completa (360°) alrededor del cursor a lo largo del video,
- * el trazo se pinta con los colores de velocidad y en pantalla solo va la distancia recorrida.
+ * el trazo se pinta con los colores de velocidad y en pantalla van la distancia recorrida, la
+ * velocidad máxima (20 m) alcanzada hasta el momento y, al final, la velocidad media en planeo.
  * Dura 35-60 s según el tiempo navegado, H.264, sin audio. Se arma en el teléfono con MediaCodec.
  */
 object Video {
@@ -146,6 +147,23 @@ object Video {
             dist[i] = dist[i - 1] + if (mismo) hypot((lon[i] - lon[i - 1]) * kx, (lat[i] - lat[i - 1]) * ky) else 0.0
         }
         val totAct = max(act_[n - 1], 1.0)
+        // velocidad máxima en 20 m (mismo cálculo que el análisis), como máximo acumulado hasta cada punto
+        val vmaxHasta = DoubleArray(n)
+        run {
+            val ps = DoubleArray(n + 1); for (i in 0 until n) ps[i + 1] = ps[i] + v[i]
+            var k2 = 0
+            for (i0 in 0 until n) {
+                k2 = max(k2, i0)
+                if (k2 > i0 && sg[k2] != sg[i0]) k2 = i0
+                while (k2 + 1 < n && sg[k2 + 1] == sg[i0] && dist[k2] - dist[i0] < 20) k2++
+                if (dist[k2] - dist[i0] >= 20) { val m_ = (ps[k2 + 1] - ps[i0]) / (k2 - i0 + 1); if (m_ > vmaxHasta[k2]) vmaxHasta[k2] = m_ }
+            }
+            for (i in 1 until n) vmaxHasta[i] = max(vmaxHasta[i], vmaxHasta[i - 1])
+        }
+        // velocidad media de navegación en planeo (> 7 kn), igual que el análisis
+        var tPlan = 0.0; var tvPlan = 0.0
+        for (i in 1 until n) if (sg[i] == sg[i - 1]) { val vm = (v[i] + v[i - 1]) / 2; if (vm > 7) { val dt = t[i] - t[i - 1]; tPlan += dt; tvPlan += dt * vm } }
+        val vPlaneo = if (tPlan > 0) tvPlan / tPlan else 0.0
         val DUR_ANIM = durAnimPara(totAct)
         val DUR_TOTAL = T_INTRO + DUR_ANIM + T_OUTRO
 
@@ -267,7 +285,8 @@ object Video {
         val u = corto / 1080f
         val pVel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 96 * u; typeface = Typeface.DEFAULT_BOLD }
         val pUni = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(220, 230, 240); textSize = 40 * u; typeface = Typeface.DEFAULT_BOLD }
-        val pDist = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 64 * u; typeface = Typeface.DEFAULT_BOLD }
+        val pDist = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 44 * u; typeface = Typeface.DEFAULT_BOLD }
+        val pPlan = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0, 216, 74); textSize = 44 * u; typeface = Typeface.DEFAULT_BOLD }
         // ---------- cámara en perspectiva: plano (px de pantalla vistos desde arriba, origen = cámara) -> pantalla
         val PHI = 40.0                                  // inclinación del eje óptico bajo el horizonte (50° desde la vertical)
         val Fp = 0.96 * H; val bajo = 0.16 * H          // distancia focal; el cursor queda un poco abajo del centro
@@ -379,16 +398,32 @@ object Video {
                 pPunto.color = Color.BLACK; c.drawCircle(pt[0], pt[1] - alto, 19 * u, pPunto)
                 pPunto.color = Color.WHITE; c.drawCircle(pt[0], pt[1] - alto, 15 * u, pPunto)
                 pPunto.color = SPD[bk(vel)]; c.drawCircle(pt[0], pt[1] - alto, 9 * u, pPunto)
-                // dato: solo la distancia recorrida (no en el paneo inicial)
+                // datos: distancia recorrida (grande), velocidad máxima alcanzada hasta el momento (chica)
+                // y, en el paneo final, la velocidad media en planeo
                 if (tv >= T_INTRO - 0.3) {
-                val mg = 40 * u
-                val sd = if (dd < 1000) String.format(Locale("es"), "%.0f", dd) else String.format(Locale("es"), "%.2f", dd / 1000)
+                val mg = 40 * u; val L = Locale("es")
+                val sd = if (dd < 1000) String.format(L, "%.0f", dd) else String.format(L, "%.2f", dd / 1000)
                 val su = if (dd < 1000) "m" else "km"
-                val wb = pVel.measureText(sd) + 16 * u + pUni.measureText(su) + 2 * 32 * u
+                val vmx = vmaxHasta[i]
+                val l1 = if (vmx > 0) "Vel. máx. " + String.format(L, "%.1f", vmx) + " kn" else null
+                val fin = suave((tv - tFin) / 0.8)
+                val l2 = if (tv >= tFin && vPlaneo > 0) "Vel. prom. planeo " + String.format(L, "%.1f", vPlaneo) + " kn" else null
+                var wb = pVel.measureText(sd) + 16 * u + pUni.measureText(su)
+                if (l1 != null) wb = max(wb, pDist.measureText(l1))
+                if (l2 != null) wb = max(wb, pDist.measureText(l2))
+                wb += 2 * 32 * u
                 val top = if (vertical) 120 * u else mg
-                c.drawRoundRect(RectF(mg, top, mg + wb, top + 140 * u), 28 * u, 28 * u, pCaja)
+                var h_ = 140f * u
+                if (l1 != null) h_ += 62 * u
+                if (l2 != null) h_ += (62 * u * fin).toFloat()
+                c.drawRoundRect(RectF(mg, top, mg + wb, top + h_), 28 * u, 28 * u, pCaja)
                 c.drawText(sd, mg + 32 * u, top + 104 * u, pVel)
                 c.drawText(su, mg + 32 * u + pVel.measureText(sd) + 16 * u, top + 104 * u, pUni)
+                if (l1 != null) c.drawText(l1, mg + 32 * u, top + 166 * u, pDist)
+                if (l2 != null) {
+                    pPlan.alpha = (255 * fin).toInt()
+                    c.drawText(l2, mg + 32 * u, top + (if (l1 != null) 228 else 166) * u, pPlan)
+                }
                 }
             } finally { surf.unlockCanvasAndPost(c) }
             drenar(false)
