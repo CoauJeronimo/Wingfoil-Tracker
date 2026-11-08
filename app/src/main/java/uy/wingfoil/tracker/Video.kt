@@ -8,7 +8,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -35,7 +38,8 @@ import kotlin.math.min
 import kotlin.math.tan
 
 /**
- * Video de la sesión (estilo Relive, en 2D): la cámara sigue el recorrido sobre la foto satelital,
+ * Video de la sesión (estilo Relive): cámara inclinada (como un drone, ~50° desde la vertical) que sigue el
+ * recorrido sobre la foto satelital y gira despacio 90° a lo largo del video,
  * el trazo se pinta con los colores de velocidad y en pantalla solo van la velocidad del momento
  * y la distancia recorrida. 45 s, H.264, sin audio. Se arma en el teléfono con MediaCodec.
  */
@@ -214,6 +218,34 @@ object Video {
         val pVel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 96 * u; typeface = Typeface.DEFAULT_BOLD }
         val pUni = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(220, 230, 240); textSize = 40 * u; typeface = Typeface.DEFAULT_BOLD }
         val pDist = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 64 * u; typeface = Typeface.DEFAULT_BOLD }
+        // ---------- cámara en perspectiva: plano (px de pantalla vistos desde arriba, origen = cámara) -> pantalla
+        val PHI = 40.0                                  // inclinación del eje óptico bajo el horizonte (50° desde la vertical)
+        val Fp = 0.96 * H; val bajo = 0.16 * H          // distancia focal; el cursor queda un poco abajo del centro
+        val phiC = PHI + Math.toDegrees(Math.atan(bajo / Fp))
+        val rr = Fp / cos(Math.toRadians(phiC - PHI)); val hh = rr * Math.sin(Math.toRadians(phiC)); val dd0 = rr * cos(Math.toRadians(phiC))
+        fun proy(x: Double, py: Double): FloatArray {
+            val f_ = dd0 - py; val pr = Math.toRadians(PHI)
+            val zz = f_ * cos(pr) + hh * Math.sin(pr); val uu = f_ * Math.sin(pr) - hh * cos(pr)
+            return floatArrayOf((W / 2 + Fp * x / zz).toFloat(), (H / 2 - Fp * uu / zz).toFloat())
+        }
+        val persp = Matrix()
+        run {
+            val A = W.toDouble(); val far = 3.0 * H
+            val src = floatArrayOf((-A).toFloat(), 0f, A.toFloat(), 0f, A.toFloat(), (-far).toFloat(), (-A).toFloat(), (-far).toFloat())
+            val q = listOf(proy(-A, 0.0), proy(A, 0.0), proy(A, -far), proy(-A, -far))
+            val dst = floatArrayOf(q[0][0], q[0][1], q[1][0], q[1][1], q[2][0], q[2][1], q[3][0], q[3][1])
+            persp.setPolyToPoly(src, 0, dst, 0, 4)
+        }
+        val cielo = Paint().apply {
+            shader = LinearGradient(0f, 0f, 0f, H * 0.34f, intArrayOf(Color.rgb(150, 190, 220), Color.argb(170, 150, 190, 220), Color.argb(0, 150, 190, 220)),
+                floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
+        }
+        val pSomb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(120, 0, 0, 0) }
+        val pPalo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255); strokeWidth = 4 * (corto / 1080f) }
+        // rumbo inicial de la cámara: a lo largo del lado más largo de la zona; después gira 90° en todo el video
+        val th0 = if (anchoM > altoM) 0.0 else 90.0
+        val radioT = 6.0 * max(W, H) / esc            // teselas a dibujar: hasta esta distancia de la cámara (px de mundo)
+        val pt = FloatArray(2)
         var hecho = 0                                  // último índice ya agregado al trazo
         var camX = X[0]; var camY = Y[0]
         val tau = 0.5                                  // suavizado de la cámara (s de video)
@@ -242,12 +274,14 @@ object Video {
 
             val c: Canvas = surf.lockHardwareCanvas()
             try {
+                val th = th0 + 90.0 * tv / DUR_TOTAL
                 c.drawColor(Color.rgb(14, 42, 71))
                 c.save()
-                c.translate(W / 2f, H / 2f); c.scale(esc, esc); c.translate(-camX.toFloat(), -camY.toFloat())
-                val vx0 = floor((camX + OX - W / 2.0 / esc) / 256).toInt(); val vx1 = floor((camX + OX + W / 2.0 / esc) / 256).toInt()
-                val vy0 = floor((camY + OY - H / 2.0 / esc) / 256).toInt(); val vy1 = floor((camY + OY + H / 2.0 / esc) / 256).toInt()
-                for (ty in vy0..vy1) for (tx in vx0..vx1) {
+                c.concat(persp)                                                   // plano -> pantalla (perspectiva)
+                c.rotate((-th).toFloat()); c.scale(esc, esc); c.translate(-camX.toFloat(), -camY.toFloat())   // mundo -> plano
+                val vx0 = floor((camX + OX - radioT) / 256).toInt(); val vx1 = floor((camX + OX + radioT) / 256).toInt()
+                val vy0 = floor((camY + OY - radioT) / 256).toInt(); val vy1 = floor((camY + OY + radioT) / 256).toInt()
+                for (ty in max(vy0, ty0)..min(vy1, ty1)) for (tx in max(vx0, tx0)..min(vx1, tx1)) {
                     val b = tiles[tx.toLong() * 100000L + ty] ?: continue
                     val l = ((tx - tx0) * 256).toFloat(); val tp = ((ty - ty0) * 256).toFloat()
                     c.drawBitmap(b, null, RectF(l, tp, l + 256.5f, tp + 256.5f), pBmp)
@@ -260,10 +294,20 @@ object Video {
                     pTrazo.color = SPD[bk(vel)]
                     c.drawLine(X[i].toFloat(), Y[i].toFloat(), cx.toFloat(), cy.toFloat(), pTrazo)
                 }
-                pPunto.color = Color.BLACK; c.drawCircle(cx.toFloat(), cy.toFloat(), 19 * u / esc, pPunto)
-                pPunto.color = Color.WHITE; c.drawCircle(cx.toFloat(), cy.toFloat(), 15 * u / esc, pPunto)
-                pPunto.color = SPD[bk(vel)]; c.drawCircle(cx.toFloat(), cy.toFloat(), 9 * u / esc, pPunto)
+                c.drawOval(RectF((cx - 16 * u / esc).toFloat(), (cy - 16 * u / esc).toFloat(), (cx + 16 * u / esc).toFloat(), (cy + 16 * u / esc).toFloat()), pSomb)
                 c.restore()
+                // cielo / bruma hacia el horizonte
+                c.drawRect(0f, 0f, W.toFloat(), H * 0.34f, cielo)
+                // cursor "parado" sobre el agua: posición en pantalla + palito + bola
+                val rot = Math.toRadians(-th)
+                val wx = (cx - camX) * esc; val wy = (cy - camY) * esc
+                pt[0] = (wx * cos(rot) - wy * Math.sin(rot)).toFloat(); pt[1] = (wx * Math.sin(rot) + wy * cos(rot)).toFloat()
+                persp.mapPoints(pt)
+                val alto = 34 * u
+                c.drawLine(pt[0], pt[1], pt[0], pt[1] - alto, pPalo)
+                pPunto.color = Color.BLACK; c.drawCircle(pt[0], pt[1] - alto, 19 * u, pPunto)
+                pPunto.color = Color.WHITE; c.drawCircle(pt[0], pt[1] - alto, 15 * u, pPunto)
+                pPunto.color = SPD[bk(vel)]; c.drawCircle(pt[0], pt[1] - alto, 9 * u, pPunto)
                 // datos: velocidad del momento y distancia recorrida
                 val mg = 40 * u
                 val sv = String.format(Locale("es"), "%.1f", vel); val sd = if (dd < 1000) String.format(Locale("es"), "%.0f m", dd) else String.format(Locale("es"), "%.2f km", dd / 1000)
