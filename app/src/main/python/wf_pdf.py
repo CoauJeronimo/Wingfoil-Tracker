@@ -349,6 +349,139 @@ def _leyenda(p, y, completa=True, saltos=False):
     _star(p, lx + 5, y - 3, 5, '#B44CFF'); p.text(lx + 13, y, "Vel. máx. 20 m", 7.5, False, GRIS)
     return y
 
+def _med(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs: return None
+    k = len(xs) // 2
+    return xs[k] if len(xs) % 2 else (xs[k-1] + xs[k]) / 2
+
+def rendimiento(p, R):
+    """Páginas de rendimiento de maniobras: velocidad de entrada, viento por babor/estribor, ángulos y evolución."""
+    MS = R['maniobras']
+    if not MS: return
+    dur = max([m.get('t_rel') or 0 for m in MS] + [R['tiempo_min'] * 60, 1])
+    st = {'y': 0}
+    def nueva():
+        p.page(); p.rect(0, 0, W, 58, fill=NAVY)
+        p.text(M, 30, "Rendimiento de maniobras", 18, True, '#FFFFFF')
+        p.text(M, 47, f"Viento desde {R['viento']:.0f}°  ·  pérdida = variación de la velocidad media de 40 m después vs 40 m antes (mediana de las completas)", 8, False, '#BFD7EA')
+        st['y'] = 82
+    def lugar(h):
+        if st['y'] + h > H - 40: nueva()
+    def parrafo(t_, size=8.6, col='#222222', bold=False):
+        lns = p.wrap(t_, size, W - 2*M, bold); lugar(len(lns) * (size + 3.4) + 4)
+        for ln in lns: p.text(M, st['y'], ln, size, bold, col); st['y'] += size + 3.4
+        st['y'] += 3
+    def titulo(t_, size=11.5):
+        lugar(110); st['y'] += 6; p.text(M, st['y'], t_, size, True, NAVY); st['y'] += 8
+    def tabla(cab, filas, anchos, resaltar=()):
+        lugar(16 + 14*len(filas) + 30)
+        y = st['y']; p.rect(M, y, sum(anchos), 16, fill=NAVY); xx = M
+        for c_, w_ in zip(cab, anchos):
+            p.text(xx + 5, y + 11, p.fit(c_, 7.6, w_ - 8, True), 7.6, True, '#FFFFFF'); xx += w_
+        y += 16
+        for i, f in enumerate(filas):
+            fill = '#FFF4CC' if i in resaltar else (CLARO if i % 2 else '#FFFFFF')
+            p.rect(M, y, sum(anchos), 14, fill=fill); xx = M
+            for j, (c_, w_) in enumerate(zip(f, anchos)):
+                col = '#C00000' if isinstance(c_, str) and c_.startswith('-') and c_.endswith('%') else '#222222'
+                p.text(xx + 5, y + 10, p.fit(str(c_), 8, w_ - 8, j == 0), 8, j == 0, col); xx += w_
+            y += 14
+        st['y'] = y + 17
+    pct = lambda a, b: f"{round(100*a/b)}%" if b else 's/d'
+    def perd(L):
+        v_ = _med([m['variacion'] for m in L if m['resultado'] == 'Completa' and m['variacion'] is not None])
+        return 's/d' if v_ is None else f"{v_*100:+.0f}%".replace('+-', '-')
+    def exito(L): return pct(sum(m['resultado'] == 'Completa' for m in L), len(L))
+    def ang(x_): return 's/d' if x_ is None else f"{x_:.0f}°"
+    def kn(x_): return 's/d' if x_ is None else _n(x_, 1, ' kn')
+    nueva()
+    parrafo("Cómo leer los ángulos: el de entrada se mide entre el rumbo promedio de 10 a 3 s antes del giro y el eje que se cruza; el de salida, entre ese eje y el rumbo de 3 a 10 s después. "
+            "El eje es la popa redonda en las trasluchadas y el enfachado (proa al viento) en las viradas: 0° = sobre el eje. "
+            "«Viento por babor/estribor» es el lado del que venía el viento antes del giro. Los ángulos y el lado dependen de la dirección de viento ingresada.", 8, GRIS)
+    for tipo, plural, eje in (('Trasluchada', 'Trasluchadas', 'popa'), ('Virada', 'Viradas', 'enfachado')):
+        L = [m for m in MS if m['tipo'] == tipo]
+        C = [m for m in L if m['resultado'] == 'Completa']; F = [m for m in L if m['resultado'] == 'Fallida']
+        st['y'] += 6; lugar(150)
+        p.rect(M, st['y'], W - 2*M, 22, fill=CLARO); p.rect(M, st['y'], 3, 22, fill=ACC)
+        p.text(M + 10, st['y'] + 15, f"{plural}: {len(L)}  ({len(C)} completas, {len(F)} fallidas, {exito(L)} de éxito)", 12, True, NAVY)
+        st['y'] += 30
+        if len(L) < 3:
+            parrafo(f"Con {len(L)} {plural.lower() if len(L) != 1 else tipo.lower()} no alcanza para analizar el rendimiento."); continue
+        # 1) velocidad de entrada
+        titulo("Velocidad de entrada y éxito")
+        cortes = [(0, 8, 'menos de 8 kn'), (8, 9.5, '8 a 9,5 kn'), (9.5, 11, '9,5 a 11 kn'), (11, 99, '11 kn o más')]
+        filas = []
+        for a_, b_, lab in cortes:
+            B = [m for m in L if a_ <= m['v_in'] < b_]
+            if B: filas.append([lab, str(len(B)), exito(B), perd(B)])
+        tabla(["Velocidad de entrada", tipo + "s", "Éxito", "Pérdida (completas)"], filas, [150, 90, 80, 120])
+        vc, vf = _med([m['v_in'] for m in C]), _med([m['v_in'] for m in F])
+        txt = f"Las completas entraron a una mediana de {kn(vc)}" + (f" y las fallidas a {kn(vf)}." if F else ".")
+        bajo = [m for m in L if m['v_in'] < 8]
+        if len(bajo) >= 2 and sum(m['resultado'] == 'Completa' for m in bajo) / len(bajo) < 0.7:
+            txt += f" Con menos de 8 kn el éxito baja a {exito(bajo)}: conviene llegar al giro con más velocidad."
+        parrafo(txt)
+        # 2) babor vs estribor
+        titulo("Viento por babor vs viento por estribor")
+        filas = []; datos = {}
+        for lado in ('babor', 'estribor'):
+            B = [m for m in L if m.get('amura') == lado]; Bc = [m for m in B if m['resultado'] == 'Completa']
+            datos[lado] = B
+            filas.append([lado.capitalize(), str(len(B)), exito(B) if B else '-', kn(_med([m['v_in'] for m in B])) if B else '-',
+                          ang(_med([m['ang_in'] for m in Bc])) if Bc else '-', ang(_med([m['ang_out'] for m in Bc])) if Bc else '-', perd(B) if Bc else '-'])
+        tabla(["Viento por", tipo + "s", "Éxito", "Vel. entrada", f"Áng. entrada", f"Áng. salida", "Pérdida"],
+              filas, [62, 62, 48, 68, 86, 86, 61])
+        nb, ne = len(datos['babor']), len(datos['estribor'])
+        if nb == 0 or ne == 0:
+            falta = 'babor' if nb == 0 else 'estribor'
+            parrafo(f"No hiciste {plural.lower()} con viento por {falta}: ese lado no se puede evaluar. Conviene practicar en las dos direcciones.")
+        else:
+            def ex_(B): return sum(m['resultado'] == 'Completa' for m in B) / len(B)
+            def pv(B):
+                v_ = _med([m['variacion'] for m in B if m['resultado'] == 'Completa' and m['variacion'] is not None]); return v_ if v_ is not None else 0
+            eb, ee = ex_(datos['babor']), ex_(datos['estribor'])
+            if abs(eb - ee) >= 0.08: debil = 'babor' if eb < ee else 'estribor'; motivo = "por el éxito"
+            elif abs(pv(datos['babor']) - pv(datos['estribor'])) >= 0.03: debil = 'babor' if pv(datos['babor']) < pv(datos['estribor']) else 'estribor'; motivo = "por la velocidad que perdés"
+            else: debil = None
+            if debil:
+                fuerte = 'estribor' if debil == 'babor' else 'babor'
+                parrafo(f"Tu lado más débil es con viento por {debil} ({motivo}): {exito(datos[debil])} de éxito y {perd(datos[debil])} de velocidad, "
+                        f"contra {exito(datos[fuerte])} y {perd(datos[fuerte])} con viento por {fuerte}. Es el lado para practicar.")
+            else:
+                parrafo("Los dos lados rinden parecido: no hay un lado claramente más débil.")
+        # 3) ángulo de salida
+        titulo(f"Ángulo de salida (desde la {'popa redonda' if eje == 'popa' else 'proa al viento'}) y velocidad")
+        filas = []; mejor = None; mv = None
+        for a_, b_ in ((0, 45), (45, 90), (90, 135), (135, 181)):
+            B = [m for m in C if m['ang_out'] is not None and a_ <= m['ang_out'] < b_]
+            if not B: continue
+            v_ = _med([m['variacion'] for m in B if m['variacion'] is not None])
+            if len(B) >= 3 and v_ is not None and (mv is None or v_ > mv): mv = v_; mejor = len(filas)
+            filas.append([f"{a_} a {min(b_, 180)}°" if a_ else f"menos de {b_}°", str(len(B)), perd(B), kn(_med([m['v_out'] for m in B]))])
+        if filas:
+            tabla(["Ángulo de salida", "Completas", "Pérdida", "Vel. salida"], filas, [150, 90, 80, 120], resaltar=(mejor,) if mejor is not None else ())
+            if mejor is not None: parrafo(f"Perdés menos velocidad saliendo a {filas[mejor][0]} del eje ({filas[mejor][2]}).")
+        # 4) ángulo de entrada
+        titulo("Ángulo de entrada y éxito")
+        filas = []; mejor = None; me = None
+        for a_, b_ in ((0, 45), (45, 90), (90, 135), (135, 181)):
+            B = [m for m in L if m['ang_in'] is not None and a_ <= m['ang_in'] < b_]
+            if not B: continue
+            e_ = sum(m['resultado'] == 'Completa' for m in B) / len(B)
+            if len(B) >= 3 and (me is None or e_ > me): me = e_; mejor = len(filas)
+            filas.append([f"{a_} a {min(b_, 180)}°" if a_ else f"menos de {b_}°", str(len(B)), exito(B), perd(B)])
+        if filas:
+            tabla(["Ángulo de entrada", tipo + "s", "Éxito", "Pérdida (completas)"], filas, [150, 90, 80, 120], resaltar=(mejor,) if mejor is not None else ())
+            if mejor is not None: parrafo(f"Tu mejor rango de entrada es {filas[mejor][0]} del eje: {filas[mejor][2]} de éxito.")
+        # 5) evolución
+        titulo("Evolución durante la sesión")
+        filas = []
+        for k, lab in enumerate(("Primer tercio", "Segundo tercio", "Último tercio")):
+            B = [m for m in L if k*dur/3 <= (m.get('t_rel') or 0) < (k+1)*dur/3 + (1 if k == 2 else 0)]
+            if B: filas.append([lab, str(len(B)), exito(B), perd(B)])
+        tabla(["Parte de la sesión", tipo + "s", "Éxito", "Pérdida (completas)"], filas, [150, 90, 80, 120])
+
 def informe(R, path, sat=True, fetch=None):
     for m in R['maniobras']:
         m['n'] = ('T' if m['tipo'] == 'Trasluchada' else 'V') + m['nombre'].split('#')[1].split(' ')[0]
@@ -532,6 +665,7 @@ def informe(R, path, sat=True, fetch=None):
         if y < H - 50:
             for ln in p.wrap("Salto = el acelerómetro (teléfono en el pecho) marca menos de 0,7 g durante 1 s o más, con una altura estimada de 0,5 m o más (así el paso de una ola no cuenta como salto). Altura máx. = (g - tirón del ala) x t x t / 8, con t = tiempo en vuelo. 'Completo' = después del aterrizaje la velocidad sigue por encima de 4 nudos. 'Fallido' = en los 10 s posteriores la velocidad cae bajo 4 nudos por más de 5 s, o la señal GPS se corta más de 5 s (teléfono bajo el agua). Vuelo = tiempo en el aire. Distancia = velocidad GPS al despegar x tiempo en el aire. Después = velocidad media de 1 a 5 s después del aterrizaje.", 7, W - 2*M):
                 p.text(M, y, ln, 7, False, GRIS); y += 9.5
+    rendimiento(p, R)
     for i, c in enumerate(p.pages, 1):           # pie de página
         p.c = c; p.text(W/2, H - 18, f"Wingfoil & PW Tracker · Análisis WingFoil Completo · {R['fecha']} · página {i} de {len(p.pages)}", 7, False, '#8899AA', 'center')
     p.save(path)

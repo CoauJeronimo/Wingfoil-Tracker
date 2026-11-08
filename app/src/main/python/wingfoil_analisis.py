@@ -262,6 +262,9 @@ for m in dd:
     if m['tipo'] == 'Trasluchada':       # trasluchada: grados respecto a la popa redonda (180° al viento)
         ai_, ao_ = (None if ai_ is None else 180 - ai_), (None if ao_ is None else 180 - ao_)
     m.update({'ang_in': ai_, 'ang_out': ao_})   # virada: grados respecto al enfachado (proa al viento)
+    h_in = avgh(t[i]-10, t[i]-3, seg[i])         # de qué lado venía el viento antes del giro (amura de entrada)
+    if h_in is None: h_in = avgh(t[i]-18, t[i]-3, seg[i])
+    m['amura'] = None if h_in is None else ('estribor' if 0 < (WIND_FROM - h_in) % 360 < 180 else 'babor')
     m.update({'resultado': 'Fallida' if (blanco(c0, c0+40) or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
               'nota': 'corte de señal tras el giro' if cayo_agua else ''}); fin.append(m)
 c = {}
@@ -410,7 +413,7 @@ for key, (ic, nm) in icons.items():
     if not L: continue
     k_.append(f'<Folder><name>{esc(nm)} ({len(L)})</name>')
     for m in L:
-        h = hora(m['t']); d = f"Hora: {h}<br/>Vel. entrada (40m): {m['v_in']:.1f} kn | Vel. salida (40m): {('%.1f' % m['v_out']) if m['v_out'] is not None else 's/d'} kn" + (f"<br/>Ángulo respecto {'a la popa redonda' if m['tipo'] == 'Trasluchada' else 'al enfachado'}: entrada (10-3 s antes) {('%.0f°' % m['ang_in']) if m['ang_in'] is not None else 's/d'} | salida (3-10 s después) {('%.0f°' % m['ang_out']) if m['ang_out'] is not None else 's/d'}") + (f"<br/>Nota: {m['nota']}" if m['nota'] else '')
+        h = hora(m['t']); d = f"Hora: {h}<br/>Vel. entrada (40m): {m['v_in']:.1f} kn | Vel. salida (40m): {('%.1f' % m['v_out']) if m['v_out'] is not None else 's/d'} kn" + (f"<br/>Ángulo respecto {'a la popa redonda' if m['tipo'] == 'Trasluchada' else 'al enfachado'}: entrada (10-3 s antes) {('%.0f°' % m['ang_in']) if m['ang_in'] is not None else 's/d'} | salida (3-10 s después) {('%.0f°' % m['ang_out']) if m['ang_out'] is not None else 's/d'}") + (f"<br/>Viento por {m['amura']} antes del giro" if m.get('amura') else '') + (f"<br/>Nota: {m['nota']}" if m['nota'] else '')
         k_.append(f'<Placemark><name>{esc(m["tipo"])} #{m["numero_grupo"]} — {h} ({m["resultado"]})</name><description><![CDATA[{d}]]></description><styleUrl>#{ic}</styleUrl><Point><coordinates>{m["lon"]:.7f},{m["lat"]:.7f},0</coordinates></Point></Placemark>')
     k_.append('</Folder>')
 k_.append('</Folder>')
@@ -450,8 +453,8 @@ LR = len(track)+1; wt.freeze_panes = 'A2'
 wm = wb.create_sheet('Maniobras', 0); wm.sheet_view.showGridLines = False
 wm['A1'] = f'Track Wingfoil {FECHA} — Viradas y Trasluchadas (Completa vs Fallida)'; wm['A1'].font = Font(name=F, bold=True, size=14)
 wm['A2'] = (f'Viento desde {VIENTO}. "Completa" = sin caída SOSTENIDA (2+ muestras seguidas) bajo 4 nudos en los 40m posteriores al giro. "Fallida" = caída sostenida bajo 4 nudos en esos 40m. Si la señal GPS se corta (teléfono bajo el agua) antes de completar esos 40m, también es Fallida. Se excluye toda maniobra con velocidad de entrada (40m previos) < 6 nudos y los giros que no cruzan limpiamente ningún eje. Ángulos de entrada y salida: grados entre el rumbo promedio de 10 a 3 s antes del giro (o de 3 a 10 s después) y el eje que se cruza: la popa redonda en las trasluchadas y el enfachado (proa al viento) en las viradas. 0° = justo sobre el eje; cuanto más grande, más lejos del eje.')
-wm.merge_cells('A2:M2'); wm.row_dimensions[2].height = 52; wm['A2'].font = Font(name=F, italic=True, size=9, color='555555'); wm['A2'].alignment = Alignment(wrap_text=True, vertical='top')
-for ci, h in enumerate(['Nombre (igual que en el KML)', 'Tipo', 'Resultado', 'Tiempo transcurrido', 'Hora local', 'Latitud', 'Longitud', 'Vel. entrada 40m (kn)', 'Vel. salida 40m (kn)', 'Variación salida vs entrada (%)', 'Ángulo de entrada al eje, 10-3 s antes (°)', 'Ángulo de salida del eje, 3-10 s después (°)', 'Observación'], 1):
+wm.merge_cells('A2:N2'); wm.row_dimensions[2].height = 52; wm['A2'].font = Font(name=F, italic=True, size=9, color='555555'); wm['A2'].alignment = Alignment(wrap_text=True, vertical='top')
+for ci, h in enumerate(['Nombre (igual que en el KML)', 'Tipo', 'Resultado', 'Tiempo transcurrido', 'Hora local', 'Latitud', 'Longitud', 'Vel. entrada 40m (kn)', 'Vel. salida 40m (kn)', 'Variación salida vs entrada (%)', 'Ángulo de entrada al eje, 10-3 s antes (°)', 'Ángulo de salida del eje, 3-10 s después (°)', 'Viento por (antes del giro)', 'Observación'], 1):
     x = wm.cell(4, ci, h); x.font = HFo; x.fill = HF; x.border = bd; x.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 wm.row_dimensions[4].height = 30
 for r, m in enumerate(M, 5):
@@ -462,10 +465,11 @@ for r, m in enumerate(M, 5):
     for ci, val in ((11, m['ang_in']), (12, m['ang_out'])):
         x = wm.cell(r, ci, round(val, 0) if val is not None else None); x.font = N; x.fill = fl; x.border = bd
         x.alignment = Alignment(horizontal='center'); x.number_format = '0"°"'
-    x = wm.cell(r, 13, m['nota']); x.font = N; x.fill = fl; x.border = bd
+    x = wm.cell(r, 13, m.get('amura') or 's/d'); x.font = N; x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
+    x = wm.cell(r, 14, m['nota']); x.font = N; x.fill = fl; x.border = bd
     x = wm.cell(r, 10, f'=IF(OR(H{r}="",I{r}="",H{r}=0),"s/d",(I{r}-H{r})/H{r})'); x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
     x.number_format = '+0.0%;[Red]-0.0%;0.0%'; x.font = N
-for col, w in zip('ABCDEFGHIJKLM', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 20, 20, 26]): wm.column_dimensions[col].width = w
+for col, w in zip('ABCDEFGHIJKLMN', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 20, 20, 16, 26]): wm.column_dimensions[col].width = w
 wm.freeze_panes = 'A5'
 wr = wb.create_sheet('Resumen', 0); wr.sheet_view.showGridLines = False
 wr['B2'] = f'Resumen del recorrido — {A.nombre} ({FECHA})' if A.nombre else f'Resumen del recorrido — Wingfoil ({FECHA})'; wr['B2'].font = Font(name=F, bold=True, size=14)
@@ -556,7 +560,7 @@ if A.json:
                        'transcurrido': f"{int((m['t']-T0)//60):02d}:{int((m['t']-T0)%60):02d}", 'hora': hora(m['t']),
                        'lat': m['lat'], 'lon': m['lon'], 'v_in': m['v_in'], 'v_out': m['v_out'],
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
-                       'ang_in': m['ang_in'], 'ang_out': m['ang_out'],
+                       'ang_in': m['ang_in'], 'ang_out': m['ang_out'], 'amura': m.get('amura'), 't_rel': m['t']-T0,
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
         'acc': ACC_OK, 'salto_min': SALTO_MIN, 'salto_h_min': A.salto_h_min,
         'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'dist': e_['dist'], 'v_in': e_['v_in'],
