@@ -132,7 +132,7 @@ object Video {
         var latMin = lat.min(); var latMax = lat.max(); var lonMin = lon.min(); var lonMax = lon.max()
         val anchoM = (lonMax - lonMin) * kx; val altoM = (latMax - latMin) * ky
         val mPorSegVideo = dist[n - 1] / DUR_ANIM
-        var vistaM = max(320.0, 1.3 * mPorSegVideo)                       // lado corto de la vista, en metros
+        var vistaM = max(300.0, 0.8 * mPorSegVideo)                       // lado corto de la vista (a la altura del cursor), en metros
         vistaM = min(vistaM, max(320.0, max(anchoM, altoM) * 1.1))
         val vistaLargoM = vistaM * max(W, H) / corto
         // zoom de teselas: el mayor (≤ 18) sin pasar de ~300 teselas
@@ -166,6 +166,19 @@ object Video {
             if (ty < 0 || ty >= nmax) continue
             val b = Tiles.get(String.format(Locale.US, TILE_URL, z, ty, ((tx % nmax) + nmax) % nmax)) ?: continue
             BitmapFactory.decodeByteArray(b, 0, b.size, opt)?.let { tiles[tx.toLong() * 100000L + ty] = it }
+        }
+        // fondo lejano de menor resolución (lo que se ve hacia el horizonte con la cámara inclinada)
+        val zb = max(8, z - 4); val fac = 1 shl (z - zb); val nb = 1 shl zb
+        val margenM = 6000.0
+        val q0 = merc(latMax + margenM / ky, lonMin - margenM / kx, zb); val q1 = merc(latMin - margenM / ky, lonMax + margenM / kx, zb)
+        val bx0 = floor(q0[0] / 256).toInt(); val bx1 = floor(q1[0] / 256).toInt(); val by0 = floor(q0[1] / 256).toInt(); val by1 = floor(q1[1] / 256).toInt()
+        val fondo = ArrayList<Pair<RectF, Bitmap>>()
+        if ((bx1 - bx0 + 1) * (by1 - by0 + 1) <= 64) for (ty in by0..by1) for (tx in bx0..bx1) {
+            if (ty < 0 || ty >= nb) continue
+            val b = Tiles.get(String.format(Locale.US, TILE_URL, zb, ty, ((tx % nb) + nb) % nb)) ?: continue
+            val bm = BitmapFactory.decodeByteArray(b, 0, b.size, opt) ?: continue
+            val l = (tx * 256.0 * fac - tx0 * 256.0).toFloat(); val t_ = (ty * 256.0 * fac - ty0 * 256.0).toFloat(); val sz = (256.0 * fac).toFloat()
+            fondo.add(Pair(RectF(l, t_, l + sz + fac, t_ + sz + fac), bm))
         }
 
         // ---------- codificador H.264 con superficie de entrada
@@ -279,6 +292,7 @@ object Video {
                 c.save()
                 c.concat(persp)                                                   // plano -> pantalla (perspectiva)
                 c.rotate((-th).toFloat()); c.scale(esc, esc); c.translate(-camX.toFloat(), -camY.toFloat())   // mundo -> plano
+                for ((rf, bm) in fondo) c.drawBitmap(bm, null, rf, pBmp)
                 val vx0 = floor((camX + OX - radioT) / 256).toInt(); val vx1 = floor((camX + OX + radioT) / 256).toInt()
                 val vy0 = floor((camY + OY - radioT) / 256).toInt(); val vy1 = floor((camY + OY + radioT) / 256).toInt()
                 for (ty in max(vy0, ty0)..min(vy1, ty1)) for (tx in max(vx0, tx0)..min(vx1, tx1)) {
@@ -328,6 +342,7 @@ object Video {
         if (muxOn) mux.stop()
         mux.release()
         for (b in tiles.values) b.recycle()
+        for ((_, bm) in fondo) bm.recycle()
 
         // ---------- a Descargas/WingFoil
         msg("Guardando…")
