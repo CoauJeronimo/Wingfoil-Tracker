@@ -144,6 +144,7 @@ class MainActivity : Activity() {
         root.addView(list)
 
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
+        recibir(intent)
     }
 
     override fun onResume() {
@@ -298,7 +299,7 @@ class MainActivity : Activity() {
                 setOnClickListener { share(d) }
             }
             val gpxB = Button(this).apply {
-                text = "🎬 GPX"; isAllCaps = false
+                text = "🗺 GPX"; isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f)
                 setOnClickListener { shareGpx(d) }
             }
@@ -318,6 +319,10 @@ class MainActivity : Activity() {
             }
             btns.addView(analyze); btns.addView(share); btns.addView(gpxB); btns.addView(del)
             row.addView(btns)
+            row.addView(Button(this).apply {
+                text = "🎬 Video del recorrido (45 s)"; isAllCaps = false
+                setOnClickListener { Video.iniciar(this@MainActivity, d) }
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             list.addView(row)
         }
     }
@@ -337,7 +342,24 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_GPX || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        importarUri(data?.data ?: return)
+    }
+
+    /** GPX abierto o compartido desde otra app (WhatsApp, Drive, explorador de archivos). */
+    private fun recibir(i: Intent?) {
+        if (i == null) return
+        val uri: Uri? = when (i.action) {
+            Intent.ACTION_VIEW -> i.data
+            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                                  else @Suppress("DEPRECATION") (i.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+            else -> null
+        }
+        if (uri != null) { setIntent(Intent(this, MainActivity::class.java)); importarUri(uri) }
+    }
+
+    override fun onNewIntent(intent: Intent?) { super.onNewIntent(intent); recibir(intent) }
+
+    private fun importarUri(uri: Uri) {
         var nombreArch = "archivo.gpx"
         try {
             contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
