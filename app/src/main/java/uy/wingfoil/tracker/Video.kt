@@ -39,7 +39,7 @@ import kotlin.math.tan
 
 /**
  * Video de la sesión (estilo Relive): cámara inclinada (como un drone, ~50° desde la vertical) que sigue el
- * recorrido sobre la foto satelital y gira despacio 90° a lo largo del video,
+ * recorrido sobre la foto satelital y da una vuelta completa (360°) alrededor del cursor a lo largo del video,
  * el trazo se pinta con los colores de velocidad y en pantalla solo van la velocidad del momento
  * y la distancia recorrida. 45 s, H.264, sin audio. Se arma en el teléfono con MediaCodec.
  */
@@ -132,7 +132,7 @@ object Video {
         var latMin = lat.min(); var latMax = lat.max(); var lonMin = lon.min(); var lonMax = lon.max()
         val anchoM = (lonMax - lonMin) * kx; val altoM = (latMax - latMin) * ky
         val mPorSegVideo = dist[n - 1] / DUR_ANIM
-        var vistaM = max(300.0, 0.8 * mPorSegVideo)                       // lado corto de la vista (a la altura del cursor), en metros
+        var vistaM = max(380.0, 1.05 * mPorSegVideo)                       // lado corto de la vista (a la altura del cursor), en metros
         vistaM = min(vistaM, max(320.0, max(anchoM, altoM) * 1.1))
         val vistaLargoM = vistaM * max(W, H) / corto
         // zoom de teselas: el mayor (≤ 18) sin pasar de ~300 teselas
@@ -261,7 +261,7 @@ object Video {
         val pt = FloatArray(2)
         var hecho = 0                                  // último índice ya agregado al trazo
         var camX = X[0]; var camY = Y[0]
-        val tau = 0.5                                  // suavizado de la cámara (s de video)
+        val tau = 0.18                                 // suavizado de la cámara (s de video): bien pegada al cursor, que es el centro del giro
         val total = (DUR_TOTAL * FPS).toInt()
         fun busca(ta: Double): Int { var lo = 0; var hi = n - 1; while (hi - lo > 1) { val m = (lo + hi) / 2; if (act_[m] <= ta) lo = m else hi = m }; return lo }
         for (f in 0 until total) {
@@ -282,12 +282,12 @@ object Video {
             // cámara: sigue al cursor con suavizado y nunca lo deja fuera del 70% central
             val al = 1 - exp(-1.0 / (FPS * tau))
             if (f == 0) { camX = cx; camY = cy } else { camX += (cx - camX) * al; camY += (cy - camY) * al }
-            val limX = W * 0.35 / esc; val limY = H * 0.35 / esc
+            val limX = W * 0.12 / esc; val limY = H * 0.12 / esc
             camX = min(max(camX, cx - limX), cx + limX); camY = min(max(camY, cy - limY), cy + limY)
 
             val c: Canvas = surf.lockHardwareCanvas()
             try {
-                val th = th0 + 90.0 * tv / DUR_TOTAL
+                val th = th0 + 360.0 * tv / DUR_TOTAL                          // una vuelta completa alrededor del cursor
                 c.drawColor(Color.rgb(14, 42, 71))
                 c.save()
                 c.concat(persp)                                                   // plano -> pantalla (perspectiva)
