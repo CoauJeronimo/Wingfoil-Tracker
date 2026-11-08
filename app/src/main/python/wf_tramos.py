@@ -42,6 +42,9 @@ def puntos(session_dir, utc=-3.0):
         raw.append((t, la, lo, sp*K))
     raw.sort(key=lambda x: x[0])
     if not raw: return [], ep
+    if 'gpx importado' in meta.get('appversion', '').lower() and len(raw) > 2:   # mismo criterio que el análisis
+        dts = sorted(raw[k+1][0] - raw[k][0] for k in range(len(raw)-1) if raw[k+1][0] > raw[k][0])
+        gap = max(5.0, 3 * dts[len(dts)//2]) if dts else 5.0
     cl = [raw[0]]
     for x in raw[1:]:
         dt = x[0] - cl[-1][0]

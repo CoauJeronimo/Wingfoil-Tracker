@@ -136,6 +136,10 @@ class MainActivity : Activity() {
         root.addView(text(14f, mut, true).apply {
             text = "SESIONES GUARDADAS"; setPadding(0, dp(20), 0, dp(6))
         })
+        root.addView(button("📥  Importar GPX", card, acc).apply {
+            textSize = 15f
+            setOnClickListener { elegirGpx() }
+        })
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(list)
 
@@ -273,6 +277,10 @@ class MainActivity : Activity() {
                 setPadding(0, dp(4), 0, dp(4))
                 setOnClickListener { renameDialog(d) }
             })
+            if (SessionInfo.get(d, "importado") == "1") row.addView(text(12f, Color.rgb(255, 190, 11), true).apply {
+                val arch = SessionInfo.get(d, "archivo_importado")
+                text = "📥 Sesión importada (GPX)" + (if (arch.isNotEmpty()) " · $arch" else "")
+            })
             row.addView(text(13f, mut).apply {
                 val lugar = SessionInfo.get(d, "lugar")
                 text = (if (nombre.isNotEmpty()) "$fechaTxt · " else "") + (if (lugar.isNotEmpty()) "$lugar · " else "") +
@@ -315,6 +323,57 @@ class MainActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    /* ---------- Importar GPX: queda como una sesión guardada más, marcada como importada ---------- */
+    private val REQ_GPX = 7301
+
+    private fun elegirGpx() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "application/gpx", "application/octet-stream", "text/xml", "application/xml", "text/plain"))
+        try { startActivityForResult(i, REQ_GPX) } catch (_: ActivityNotFoundException) { toast("No hay un selector de archivos disponible.") }
+    }
+
+    @Deprecated("Activity clásica")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_GPX || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        var nombreArch = "archivo.gpx"
+        try {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) nombreArch = c.getString(0) ?: nombreArch
+            }
+        } catch (_: Exception) { }
+        val wait = AlertDialog.Builder(this).setTitle("Importando GPX…").setMessage(nombreArch).setCancelable(false).show()
+        Thread {
+            var res: org.json.JSONObject? = null; var err: String? = null
+            try {
+                val tmp = File(cacheDir, "importar.gpx")
+                contentResolver.openInputStream(uri)?.use { ins -> tmp.outputStream().use { ins.copyTo(it) } }
+                Analysis.ensurePython(this)
+                val off = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 3_600_000.0
+                res = org.json.JSONObject(com.chaquo.python.Python.getInstance().getModule("wf_gpx")
+                    .callAttr("importar", tmp.absolutePath, TrackService.sessionsRoot(this).absolutePath, off, nombreArch).toString())
+                tmp.delete()
+                if (!res.optBoolean("ok")) err = res.optString("error")
+            } catch (e: Throwable) { err = e.toString() }
+            ui.post {
+                wait.dismiss(); buildList()
+                if (err != null || res == null) {
+                    AlertDialog.Builder(this).setTitle("No se pudo importar").setMessage(err ?: "Error desconocido").setPositiveButton("OK", null).show()
+                } else {
+                    val r = res!!
+                    val msg = "Inicio: ${r.optString("inicio")}\nDuración: ${r.optDouble("duracion_min").toString().replace('.', ',')} min\n" +
+                        "Puntos: ${r.optInt("puntos")} (cada ${r.optDouble("paso_s").toString().replace('.', ',')} s)\n" +
+                        (if (r.optBoolean("velocidad_gpx")) "Velocidad: la del GPX." else "Velocidad: el GPX no la trae; se calcula por posición (puede diferir un poco de la que mide la app al grabar).") +
+                        "\n\nQuedó en Sesiones guardadas, marcada como importada. Se puede renombrar, analizar y exportar como cualquier otra."
+                    AlertDialog.Builder(this).setTitle("Sesión importada").setMessage(msg)
+                        .setPositiveButton("Analizar ahora") { _, _ -> analyzeDialog(File(r.getString("dir"))) }
+                        .setNegativeButton("Cerrar", null).show()
+                }
+            }
+        }.start()
+    }
 
     private fun renameDialog(dir: File) {
         val f = field("ej. Domingo con olas", SessionInfo.get(dir, "nombre"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)

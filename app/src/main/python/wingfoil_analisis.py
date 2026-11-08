@@ -53,10 +53,14 @@ if mf:
     rows_ = list(csv.DictReader(mf))
     if rows_: meta = {(k or '').strip().lower(): (v_ or '').strip() for k, v_ in rows_[0].items()}
 appv = meta.get('appversion', '')
-if 'wingfoiltracker' in appv.lower().replace(' ', ''): ORIGEN = 'Wingfoil Tracker'
+if 'gpx importado' in appv.lower(): ORIGEN = 'GPX importado'
+elif 'wingfoiltracker' in appv.lower().replace(' ', ''): ORIGEN = 'Wingfoil Tracker'
 elif meta: ORIGEN = 'Sensor Logger'
 else: ORIGEN = 'No identificado (sin Metadata.csv)'
-if appv: ORIGEN_TXT = f"{ORIGEN} ({appv})"
+if ORIGEN == 'GPX importado':
+    ORIGEN_TXT = 'Sesión importada (GPX)' + (f" - {appv.split(' - ', 1)[1]}" if ' - ' in appv else '') + \
+                 (' · velocidad calculada por posición' if 'velocidad-por-posicion' in meta.get('sensors', '') else '')
+elif appv: ORIGEN_TXT = f"{ORIGEN} ({appv})"
 else: ORIGEN_TXT = ORIGEN
 TRACKER = ORIGEN == 'Wingfoil Tracker'
 MAXACC = A.max_acc if A.max_acc is not None else (10.0 if TRACKER else 20.0)
@@ -90,6 +94,10 @@ for r in csv.DictReader(loc_f):
     if ac is not None and ac > MAXACC: n_acc += 1; continue
     raw.append((t, la, lo, sp * K))
 raw.sort(key=lambda x: x[0])
+if ORIGEN == 'GPX importado' and A.gap is None and len(raw) > 2:     # GPX: corte por hueco según su frecuencia de puntos
+    _dts = sorted(raw[k+1][0] - raw[k][0] for k in range(len(raw)-1) if raw[k+1][0] > raw[k][0])
+    GAP = max(5.0, 3 * _dts[len(_dts)//2]) if _dts else 5.0
+    print(f"GPX importado: corte por hueco > {GAP:g} s")
 if not raw: raise SystemExit('La sesión no tiene puntos GPS válidos (todos sin posición o con mala precisión).')
 print(f"Puntos descartados por precisión (> {MAXACC:g} m): {n_acc}")
 def _tsec(x):
