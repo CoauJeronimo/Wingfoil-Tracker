@@ -40,8 +40,8 @@ import kotlin.math.tan
 /**
  * Video de la sesión (estilo Relive): cámara inclinada (como un drone, ~50° desde la vertical) que sigue el
  * recorrido sobre la foto satelital y da una vuelta completa (360°) alrededor del cursor a lo largo del video,
- * el trazo se pinta con los colores de velocidad y en pantalla solo van la velocidad del momento
- * y la distancia recorrida. Dura 35-60 s según el tiempo navegado, H.264, sin audio. Se arma en el teléfono con MediaCodec.
+ * el trazo se pinta con los colores de velocidad y en pantalla solo va la distancia recorrida.
+ * Dura 35-60 s según el tiempo navegado, H.264, sin audio. Se arma en el teléfono con MediaCodec.
  */
 object Video {
     private const val TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d"
@@ -379,17 +379,16 @@ object Video {
                 pPunto.color = Color.BLACK; c.drawCircle(pt[0], pt[1] - alto, 19 * u, pPunto)
                 pPunto.color = Color.WHITE; c.drawCircle(pt[0], pt[1] - alto, 15 * u, pPunto)
                 pPunto.color = SPD[bk(vel)]; c.drawCircle(pt[0], pt[1] - alto, 9 * u, pPunto)
-                // datos: velocidad del momento y distancia recorrida (no en el paneo inicial)
+                // dato: solo la distancia recorrida (no en el paneo inicial)
                 if (tv >= T_INTRO - 0.3) {
                 val mg = 40 * u
-                val sv = String.format(Locale("es"), "%.1f", vel); val sd = if (dd < 1000) String.format(Locale("es"), "%.0f m", dd) else String.format(Locale("es"), "%.2f km", dd / 1000)
-                val wv = pVel.measureText(sv) + 16 * u + pUni.measureText("kn")
-                val wb = max(wv, pDist.measureText(sd)) + 2 * 32 * u
+                val sd = if (dd < 1000) String.format(Locale("es"), "%.0f", dd) else String.format(Locale("es"), "%.2f", dd / 1000)
+                val su = if (dd < 1000) "m" else "km"
+                val wb = pVel.measureText(sd) + 16 * u + pUni.measureText(su) + 2 * 32 * u
                 val top = if (vertical) 120 * u else mg
-                c.drawRoundRect(RectF(mg, top, mg + wb, top + 210 * u), 28 * u, 28 * u, pCaja)
-                c.drawText(sv, mg + 32 * u, top + 104 * u, pVel)
-                c.drawText("kn", mg + 32 * u + pVel.measureText(sv) + 16 * u, top + 104 * u, pUni)
-                c.drawText(sd, mg + 32 * u, top + 180 * u, pDist)
+                c.drawRoundRect(RectF(mg, top, mg + wb, top + 140 * u), 28 * u, 28 * u, pCaja)
+                c.drawText(sd, mg + 32 * u, top + 104 * u, pVel)
+                c.drawText(su, mg + 32 * u + pVel.measureText(sd) + 16 * u, top + 104 * u, pUni)
                 }
             } finally { surf.unlockCanvasAndPost(c) }
             drenar(false)
