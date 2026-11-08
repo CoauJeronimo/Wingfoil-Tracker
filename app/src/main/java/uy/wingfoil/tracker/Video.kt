@@ -76,8 +76,10 @@ object Video {
                         .setPositiveButton("OK", null).show()
                 } else {
                     val u = uri!!
+                    // videos anteriores que Android no dejó borrar solo (guardados por otra instalación): se pide permiso
+                    SessionInfo.pedirBorrado(act, viejos); viejos = emptyList()
                     AlertDialog.Builder(act).setTitle("Video listo")
-                        .setMessage("Quedó guardado en Descargas/WingFoil." + if (sinFoto) "\n\nNo se pudo bajar la foto satelital (sin conexión a internet o sin imágenes de esa zona): el video salió con fondo liso." else "")
+                        .setMessage("Quedó guardado en Descargas/WingFoil (reemplaza al video anterior de esta sesión)." + if (sinFoto) "\n\nNo se pudo bajar la foto satelital (sin conexión a internet o sin imágenes de esa zona): el video salió con fondo liso." else "")
                         .setPositiveButton("Ver") { _, _ ->
                             try { act.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(u, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch (_: Exception) { }
                         }
@@ -92,6 +94,7 @@ object Video {
     }
 
     @Volatile private var sinFoto = false
+    @Volatile private var viejos: List<Uri> = emptyList()
 
     /** Las zonas sin imágenes devuelven una tesela gris con el texto "Map data not yet available": se descarta. */
     private fun esFoto(b: ByteArray): Boolean {
@@ -440,7 +443,8 @@ object Video {
 
         // ---------- a Descargas/WingFoil
         msg("Guardando…")
-        SessionInfo.deleteDownloads(act, dir, "video")
+        // el video nuevo reemplaza al anterior de esta sesión
+        viejos = SessionInfo.deleteDownloads(act, dir, "video")
         val res = act.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, dir.name + "_video.mp4")
