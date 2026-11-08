@@ -41,21 +41,21 @@ import kotlin.math.tan
  * Video de la sesión (estilo Relive): cámara inclinada (como un drone, ~50° desde la vertical) que sigue el
  * recorrido sobre la foto satelital y da una vuelta completa (360°) alrededor del cursor a lo largo del video,
  * el trazo se pinta con los colores de velocidad y en pantalla solo van la velocidad del momento
- * y la distancia recorrida. 45 s, H.264, sin audio. Se arma en el teléfono con MediaCodec.
+ * y la distancia recorrida. Dura 35-60 s según el tiempo navegado, H.264, sin audio. Se arma en el teléfono con MediaCodec.
  */
 object Video {
     private const val TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d"
     private const val FPS = 30
-    private const val T_INTRO = 3.5            // paneo 360° del área antes de arrancar
-    private const val T_OUTRO = 4.0            // paneo 360° del área al terminar
-    private const val DUR_TOTAL = 45.0
-    private const val DUR_ANIM = DUR_TOTAL - T_INTRO - T_OUTRO   // segundos de recorrido animado
+    private const val T_INTRO = 5.0            // paneo 360° del área antes de arrancar
+    private const val T_OUTRO = 5.0            // paneo 360° del área al terminar
+    // recorrido animado: 0,4 s por minuto de navegación, entre 25 y 50 s (video total 35-60 s)
+    private fun durAnimPara(segActivos: Double) = max(25.0, min(50.0, 0.4 * segActivos / 60.0))
     private val SPD = intArrayOf(Color.WHITE, Color.rgb(0, 216, 74), Color.rgb(255, 212, 0), Color.rgb(255, 45, 45))
     private fun bk(v: Double) = if (v < 4) 0 else if (v < 7) 1 else if (v < 12) 2 else 3
 
     fun iniciar(act: Activity, dir: File) {
         val ops = arrayOf("Vertical 9:16 (historias de Instagram / WhatsApp)", "Horizontal 16:9")
-        AlertDialog.Builder(act).setTitle("Video de la sesión (45 s)")
+        AlertDialog.Builder(act).setTitle("Video de la sesión (35-60 s según la duración)")
             .setItems(ops) { _, w -> generar(act, dir, w == 0) }
             .setNegativeButton("Cancelar", null).show()
     }
@@ -146,6 +146,8 @@ object Video {
             dist[i] = dist[i - 1] + if (mismo) hypot((lon[i] - lon[i - 1]) * kx, (lat[i] - lat[i - 1]) * ky) else 0.0
         }
         val totAct = max(act_[n - 1], 1.0)
+        val DUR_ANIM = durAnimPara(totAct)
+        val DUR_TOTAL = T_INTRO + DUR_ANIM + T_OUTRO
 
         // ---------- encuadre: lo más cerca posible, pero que el cursor no cruce la pantalla en menos de ~1 s de video
         var latMin = lat.min(); var latMax = lat.max(); var lonMin = lon.min(); var lonMax = lon.max()

@@ -322,7 +322,7 @@ class MainActivity : Activity() {
             btns.addView(share); btns.addView(gpxB); btns.addView(del)
             row.addView(btns)
             row.addView(Button(this).apply {
-                text = "🎬 Video del recorrido (45 s)"; isAllCaps = false
+                text = "🎬 Video del recorrido"; isAllCaps = false
                 setOnClickListener { Video.iniciar(this@MainActivity, d) }
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             list.addView(row)
