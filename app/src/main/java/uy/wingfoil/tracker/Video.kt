@@ -149,8 +149,9 @@ object Video {
         var latMin = lat.min(); var latMax = lat.max(); var lonMin = lon.min(); var lonMax = lon.max()
         val anchoM = (lonMax - lonMin) * kx; val altoM = (latMax - latMin) * ky
         val mPorSegVideo = dist[n - 1] / DUR_ANIM
-        var vistaM = max(380.0, 1.05 * mPorSegVideo)                       // lado corto de la vista (a la altura del cursor), en metros
-        vistaM = min(vistaM, max(320.0, max(anchoM, altoM) * 1.1))
+        // lado corto de la vista a la altura del cursor: al menos 650 m (se ven la costa, los cabos, etc.);
+        // en sesiones muy largas se abre más para que el cursor no cruce la pantalla de golpe
+        val vistaM = max(650.0, 1.05 * mPorSegVideo)
         val vistaLargoM = vistaM * max(W, H) / corto
         // zoom de teselas: el mayor (≤ 18) sin pasar de ~300 teselas
         val mx = (vistaLargoM / 2) / kx; val my = (vistaLargoM / 2) / ky
