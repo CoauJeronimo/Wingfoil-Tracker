@@ -1,7 +1,7 @@
 """Puente entre la app Android y el análisis: corre wingfoil_analisis.py y arma el PDF."""
 import sys, io, os, re, json, importlib, contextlib, traceback
 
-def run(session_dir, outdir, wind, fecha, sections, excludes, sat=True, nombre='', lugar='', viento_kn='', comentario=''):
+def run(session_dir, outdir, wind, fecha, sections, excludes, sat=True, nombre='', lugar='', viento_kn='', comentario='', disciplina='wingfoil'):
     os.makedirs(outdir, exist_ok=True)
     jpath = os.path.join(outdir, 'resultados.json')
     if os.path.exists(jpath): os.remove(jpath)
@@ -10,6 +10,8 @@ def run(session_dir, outdir, wind, fecha, sections, excludes, sat=True, nombre='
             '--metadata', os.path.join(session_dir, 'Metadata.csv'),
             '--wind', str(wind), '--fecha', fecha, '--sections', str(int(sections)),
             '--outdir', outdir, '--json', jpath]
+    disciplina = 'windsurf' if str(disciplina).lower() == 'windsurf' else 'wingfoil'
+    argv += ['--disciplina', disciplina]
     if nombre: argv += ['--nombre', str(nombre)]
     if lugar: argv += ['--lugar', str(lugar)]
     if comentario: argv += ['--comentario', str(comentario)]
@@ -29,12 +31,13 @@ def run(session_dir, outdir, wind, fecha, sections, excludes, sat=True, nombre='
             importlib.import_module('wingfoil_analisis')
         R = json.load(open(jpath, encoding='utf-8'))
         import wf_pdf
-        pdf = os.path.join(outdir, f'analisis_wingfoil_{fecha}.pdf')
+        pdf = os.path.join(outdir, f'analisis_{disciplina}_{fecha}.pdf')
         wf_pdf.informe(R, pdf, sat=bool(sat))
         T, V = R['por_tipo']['Trasluchada'], R['por_tipo']['Virada']
         def pc(x, s=False): return 's/d' if x is None else (f"{x*100:+.1f}%" if s else f"{x*100:.1f}%")
-        resumen = (f"Distancia {R['distancia_km']:.2f} km · Tiempo {R['tiempo_min']:.1f} min\n"
-                   f"Planeo {R['planeo_min']:.1f} min ({pc(R['planeo_pct'])}) · Vel. media en planeo {R['vel_media_planeo']:.2f} kn\n"
+        resumen = (f"Distancia {R['distancia_km']:.2f} km · Tiempo {R['tiempo_min']:.1f} min\n" +
+                   (f"Navegando {R['nav_min']:.1f} min · Vel. media navegando {R['vel_media_nav']:.2f} kn\n" if disciplina == 'windsurf' else
+                    f"Planeo {R['planeo_min']:.1f} min ({pc(R['planeo_pct'])}) · Vel. media en planeo {R['vel_media_planeo']:.2f} kn\n") +
                    f"Vel. máx. 20 m {R['vmax20']:.2f} kn ({R['vmax20_hora']})\n"
                    f"Trasluchadas {T['completas']} completas / {T['fallidas']} fallidas · variación (completas) {pc(T['variacion'], True)}\n"
                    f"Viradas {V['completas']} completas / {V['fallidas']} fallidas · variación (completas) {pc(V['variacion'], True)}\n"

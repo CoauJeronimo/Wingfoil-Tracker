@@ -26,13 +26,13 @@ object Analysis {
     }
 
     fun run(ctx: Context, dir: File, wind: Double, fecha: String, sections: Int, excludes: String, sat: Boolean,
-            nombre: String = "", lugar: String = "", vientoKn: String = "", comentario: String = ""): Result {
+            nombre: String = "", lugar: String = "", vientoKn: String = "", comentario: String = "", disciplina: String = "wingfoil"): Result {
         ensurePython(ctx)
         Tiles.cacheDir = File(ctx.filesDir, "tiles").apply { mkdirs() }; Tiles.reset()
         val out = File(dir, "analisis")
         out.deleteRecursively()
         val s = Python.getInstance().getModule("runner")
-            .callAttr("run", dir.absolutePath, out.absolutePath, wind, fecha, sections, excludes, sat, nombre, lugar, vientoKn, comentario).toString()
+            .callAttr("run", dir.absolutePath, out.absolutePath, wind, fecha, sections, excludes, sat, nombre, lugar, vientoKn, comentario, disciplina).toString()
         val j = JSONObject(s)
         if (!j.optBoolean("ok")) return Result(false, error = j.optString("error"), log = j.optString("log"))
         return Result(

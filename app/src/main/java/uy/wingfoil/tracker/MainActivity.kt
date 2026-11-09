@@ -21,6 +21,9 @@ import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.view.View
 import android.widget.EditText
 import android.widget.CheckBox
 import android.text.InputType
@@ -284,7 +287,9 @@ class MainActivity : Activity() {
             })
             row.addView(text(13f, mut).apply {
                 val lugar = SessionInfo.get(d, "lugar")
-                text = (if (nombre.isNotEmpty()) "$fechaTxt · " else "") + (if (lugar.isNotEmpty()) "$lugar · " else "") +
+                val disc = SessionInfo.get(d, "disciplina")
+                text = (if (disc == "windsurf") "Windsurf · " else if (disc == "wingfoil") "Wingfoil · " else "") +
+                    (if (nombre.isNotEmpty()) "$fechaTxt · " else "") + (if (lugar.isNotEmpty()) "$lugar · " else "") +
                     String.format(Locale.US, "%d:%02d:%02d · %d puntos", dur / 3600, (dur / 60) % 60, dur % 60, sm.points)
             })
             val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -418,6 +423,15 @@ class MainActivity : Activity() {
         val p = TrackService.prefs(this)
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
         fun label(s: String) = box.addView(text(13f, mut, true).apply { text = s; setPadding(0, dp(10), 0, 0) })
+        val info0 = SessionInfo.load(dir)
+        label("Disciplina")
+        val discIni = info0.optString("disciplina", "").ifEmpty { p.getString("lastDisc", "wingfoil") ?: "wingfoil" }
+        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val rWing = RadioButton(this).apply { id = View.generateViewId(); text = "Wingfoil"; setTextColor(Color.WHITE); textSize = 16f }
+        val rWind = RadioButton(this).apply { id = View.generateViewId(); text = "Windsurf"; setTextColor(Color.WHITE); textSize = 16f }
+        rg.addView(rWing); rg.addView(rWind)
+        rg.check(if (discIni == "windsurf") rWind.id else rWing.id)
+        box.addView(rg)
         label("Viento: grados de DONDE VIENE (obligatorio)")
         val fWind = field("ej. 169", p.getString("lastWind", "") ?: "", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
         box.addView(fWind)
@@ -471,7 +485,9 @@ class MainActivity : Activity() {
                 !Regex("""\d{2}-\d{2}-\d{4}""").matches(fecha) -> fFecha.error = "Formato DD-MM-AAAA"
                 sec < 1 || sec > 50 -> fSec.error = "Entre 1 y 50"
                 else -> {
-                    p.edit().putString("lastWind", fWind.text.toString()).putString("lastSections", sec.toString())
+                    val disc = if (rg.checkedRadioButtonId == rWind.id) "windsurf" else "wingfoil"
+                    SessionInfo.set(dir, "disciplina" to disc)
+                    p.edit().putString("lastDisc", disc).putString("lastWind", fWind.text.toString()).putString("lastSections", sec.toString())
                         .putBoolean("lastSat", cSat.isChecked).putString("lastLugar", fLugar.text.toString().trim()).apply()
                     SessionInfo.set(dir, "viento_kn" to fKn.text.toString(), "lugar" to fLugar.text.toString(),
                         "comentario" to fCom.text.toString())
@@ -489,7 +505,7 @@ class MainActivity : Activity() {
         Thread {
             val inf = SessionInfo.load(dir)
             val r = try { Analysis.run(this, dir, wind, fecha, sec, exc, sat, inf.optString("nombre"), inf.optString("lugar"),
-                                       inf.optString("viento_kn"), inf.optString("comentario")) }
+                                       inf.optString("viento_kn"), inf.optString("comentario"), inf.optString("disciplina", "wingfoil").ifEmpty { "wingfoil" }) }
                     catch (e: Throwable) { Analysis.Result(false, error = e.toString()) }
             var pdfUri: Uri? = null; var kmlUri: Uri? = null
             if (r.ok) try {
@@ -521,7 +537,7 @@ class MainActivity : Activity() {
                         val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                             type = "*/*"
                             putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                            putExtra(Intent.EXTRA_SUBJECT, "Análisis wingfoil $fecha")
+                            putExtra(Intent.EXTRA_SUBJECT, "Análisis ${if (SessionInfo.get(dir, "disciplina") == "windsurf") "windsurf" else "wingfoil"} $fecha")
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                         startActivity(Intent.createChooser(send, "Compartir análisis"))

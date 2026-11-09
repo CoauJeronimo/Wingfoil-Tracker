@@ -164,8 +164,11 @@ object Video {
             for (i in 1 until n) vmaxHasta[i] = max(vmaxHasta[i], vmaxHasta[i - 1])
         }
         // velocidad media de navegación en planeo (> 7 kn), igual que el análisis
+        // windsurf: el planeo no importa; al final va la velocidad media navegando (> 4 kn)
+        val windsurf = SessionInfo.get(dir, "disciplina") == "windsurf"
+        val vUmbral = if (windsurf) 4.0 else 7.0
         var tPlan = 0.0; var tvPlan = 0.0
-        for (i in 1 until n) if (sg[i] == sg[i - 1]) { val vm = (v[i] + v[i - 1]) / 2; if (vm > 7) { val dt = t[i] - t[i - 1]; tPlan += dt; tvPlan += dt * vm } }
+        for (i in 1 until n) if (sg[i] == sg[i - 1]) { val vm = (v[i] + v[i - 1]) / 2; if (vm > vUmbral) { val dt = t[i] - t[i - 1]; tPlan += dt; tvPlan += dt * vm } }
         val vPlaneo = if (tPlan > 0) tvPlan / tPlan else 0.0
         val DUR_ANIM = durAnimPara(totAct)
         val DUR_TOTAL = T_INTRO + DUR_ANIM + T_OUTRO
@@ -410,7 +413,7 @@ object Video {
                 val vmx = vmaxHasta[i]
                 val l1 = if (vmx > 0) "Vel. máx. " + String.format(L, "%.1f", vmx) + " kn" else null
                 val fin = suave((tv - tFin) / 0.8)
-                val l2 = if (tv >= tFin && vPlaneo > 0) "Vel. prom. planeo " + String.format(L, "%.1f", vPlaneo) + " kn" else null
+                val l2 = if (tv >= tFin && vPlaneo > 0) (if (windsurf) "Vel. prom. " else "Vel. prom. planeo ") + String.format(L, "%.1f", vPlaneo) + " kn" else null
                 var wb = pVel.measureText(sd) + 16 * u + pUni.measureText(su)
                 if (l1 != null) wb = max(wb, pDist.measureText(l1))
                 if (l2 != null) wb = max(wb, pDist.measureText(l2))

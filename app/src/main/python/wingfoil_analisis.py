@@ -14,6 +14,7 @@ Uso:
   que es el defecto para Sensor Logger). El corte se trata igual que un --exclude: no suma tiempo, distancia ni planeo.
 Requiere: python3 + openpyxl.
 """
+import wf_textos
 import csv, math, json, bisect, argparse, os, datetime, io, zipfile, array
 from collections import Counter
 from openpyxl import Workbook
@@ -33,7 +34,13 @@ ap.add_argument('--lugar', default='', help='opcional: lugar de la sesión')
 ap.add_argument('--viento-kn', type=float, help='opcional: intensidad del viento (nudos)')
 ap.add_argument('--comentario', default='', help='opcional: comentario libre')
 ap.add_argument('--salto-h-min', type=float, default=0.5, help='altura mínima estimada (m) para contar un salto (por defecto 0.5)')
+ap.add_argument('--disciplina', choices=['wingfoil', 'windsurf'], default='wingfoil',
+                help='wingfoil (por defecto) o windsurf: cambia los umbrales de maniobra y lo que se informa (en windsurf no se informa el planeo)')
 A = ap.parse_args()
+WS = A.disciplina == 'windsurf'
+DISC = 'Windsurf' if WS else 'Wingfoil'
+V_NAV = 4.0 if WS else 7.0        # velocidad mínima para medir ángulos al viento, rumbos y VMG (navegando / en planeo)
+V_ENT_MIN = 4.0 if WS else 6.0    # velocidad mínima de entrada (40 m previos) para contar una maniobra
 K = 1.9438444924406            # m/s -> nudos
 WIND_FROM = A.wind % 360; DOWNWIND = (WIND_FROM + 180) % 360
 UTC = A.utc_offset
@@ -141,6 +148,9 @@ T0 = t[0]
 tt = sum((t[i]-t[i-1]) for i in range(1, n) if seg[i] == seg[i-1])
 plan = sum((t[i]-t[i-1]) for i in range(1, n) if seg[i] == seg[i-1] and (v[i]+v[i-1])/2 > 7)
 navv = sum((t[i]-t[i-1])*(v[i]+v[i-1])/2 for i in range(1, n) if seg[i] == seg[i-1] and (v[i]+v[i-1])/2 > 7) / plan if plan else 0
+nav4 = sum((t[i]-t[i-1]) for i in range(1, n) if seg[i] == seg[i-1] and (v[i]+v[i-1])/2 > 4)
+navv4 = sum((t[i]-t[i-1])*(v[i]+v[i-1])/2 for i in range(1, n) if seg[i] == seg[i-1] and (v[i]+v[i-1])/2 > 4) / nav4 if nav4 else 0
+print(f"Navegando (>4 kn) {nav4/60:.1f} min | vel. media navegando {navv4:.2f} kn")
 print(f"Tiempo {tt/60:.1f} min | Dist {cd[-1]/1000:.2f} km | Planeo {plan/60:.1f} min ({plan/tt*100:.1f}%) | Vel media en planeo (>7 kn) {navv:.2f} kn | puntos {n} | segmentos {seg[-1]+1}")
 # VELOCIDAD MÁXIMA EN 20 m: media de la velocidad GPS de los puntos de cada tramo de 20 m (mismo segmento); se toma el máximo
 ps = [0.0]
@@ -233,7 +243,7 @@ while i < n:
         i = j
     else: i += 1
 
-# 7) UNIÓN, deduplicado (<15 s), velocidades, COMPLETA/FALLIDA, filtro de entrada >= 6 kn
+# 7) UNIÓN, deduplicado (<15 s), velocidades, COMPLETA/FALLIDA, filtro de entrada (wingfoil >= 6 kn, windsurf >= 4 kn)
 allm = [m for m in caidas if m['t']-T0 > 90] + cand
 allm.sort(key=lambda m: m['t'])
 dd = []
@@ -259,11 +269,55 @@ def ang_t(i, antes):                   # rumbo promedio 10-3 s antes (o 3-10 s d
     tc = t[i]
     h = avgh(tc-10, tc-3, seg[i]) if antes else avgh(tc+3, tc+10, seg[i])
     return None if h is None else round(twa(h))      # grados enteros: la variación cuadra con lo que se ve
+def _uw(tc, sg, hw=18):                 # rumbo "desenrollado" (continuo) alrededor del giro: [(índice, grados)]
+    pts = [i for i in iv[bisect.bisect_left(tv, tc-hw):bisect.bisect_right(tv, tc+hw)] if seg[i] == sg]
+    if len(pts) < 4: return []
+    out = [(pts[0], cog[pts[0]])]
+    for a, b in zip(pts, pts[1:]): out.append((b, out[-1][1] + ((cog[b]-cog[a]) + 180) % 360 - 180))
+    return out
+UPX, UPY = math.sin(math.radians(WIND_FROM)), math.cos(math.radians(WIND_FROM))   # vector hacia DONDE VIENE el viento
+KX = math.cos(math.radians(lat[0])) * 111320.0; KY = 110574.0
+def geom(i, vi):
+    """Cómo fue el giro: inicio y fin (rumbo a menos de 15° del de entrada / salida), duración, radio,
+    velocidad mínima, metros ganados (+) o cedidos (−) contra el viento y tiempo hasta recuperar el 80% de la velocidad."""
+    tc, sg = t[i], seg[i]
+    U = _uw(tc, sg)
+    r = {'dur': None, 'radio': None, 'vmin': None, 'barlo': None, 't_rec': None, 'ti': None, 'tf': None}
+    if not U: return r
+    hb = [u for q, u in U if tc-10 <= t[q] <= tc-3]; ha = [u for q, u in U if tc+3 <= t[q] <= tc+10]
+    if not hb or not ha: return r
+    hb = sum(hb)/len(hb); ha = sum(ha)/len(ha)
+    ini = [q for q, u in U if t[q] <= tc and abs(u-hb) <= 15]
+    fn_ = [q for q, u in U if t[q] >= tc and abs(u-ha) <= 15]
+    qi = ini[-1] if ini else U[0][0]; qf = fn_[0] if fn_ else U[-1][0]
+    if t[qf] <= t[qi]: return r
+    r['ti'], r['tf'] = t[qi], t[qf]
+    r['dur'] = t[qf] - t[qi]
+    giro = abs(dict(U)[qf] - dict(U)[qi])
+    if giro >= 30: r['radio'] = (cd[qf]-cd[qi]) / math.radians(giro)
+    r['vmin'] = min(v[q] for q in range(qi, qf+1) if seg[q] == sg)
+    dx = (lon[qf]-lon[qi])*KX; dy = (lat[qf]-lat[qi])*KY
+    r['barlo'] = dx*UPX + dy*UPY
+    q = i                                    # recuperación: media de 3 puntos >= 80% de la velocidad de entrada (hasta 60 s)
+    while q+2 < n and seg[q+2] == sg and t[q] <= tc + 60:
+        if t[q] >= t[qf] - 1 and (v[q]+v[q+1]+v[q+2])/3 >= 0.8*vi: r['t_rec'] = t[q] - tc; break
+        q += 1
+    return r
+def parada(ta, tb, vlim, dmin, sg):         # ¿hay una racha con velocidad < vlim de dmin s o más entre ta y tb?
+    q = bisect.bisect_left(t, ta)
+    while q < n and t[q] <= tb:
+        if seg[q] == sg and v[q] < vlim:
+            k = q
+            while k+1 < n and seg[k+1] == sg and v[k+1] < vlim: k += 1
+            if t[k] - t[q] >= dmin: return True
+            q = k + 1
+        else: q += 1
+    return False
 fin = []
 for m in dd:
     i = min(range(n), key=lambda q: abs(t[q]-m['t'])); c0 = cd[i]; SG = seg[i]
     vi = avg(c0-40, c0); vo = avg(c0, c0+40)
-    if vi is None or vi < 6: continue          # no estaba foileando
+    if vi is None or vi < V_ENT_MIN: continue      # no venía navegando (wingfoil: no estaba foileando)
     fin_seg = max(cd[q] for q in range(i, n) if seg[q] == SG)
     cayo_agua = SG in corte and fin_seg < c0 + 40          # la señal se corta (teléfono bajo el agua) antes de 40 m
     ai_, ao_ = ang_t(i, True), ang_t(i, False)
@@ -273,8 +327,20 @@ for m in dd:
     h_in = avgh(t[i]-10, t[i]-3, seg[i])         # de qué lado venía el viento antes del giro (amura de entrada)
     if h_in is None: h_in = avgh(t[i]-18, t[i]-3, seg[i])
     m['amura'] = None if h_in is None else ('estribor' if 0 < (WIND_FROM - h_in) % 360 < 180 else 'babor')
-    m.update({'resultado': 'Fallida' if (blanco(c0, c0+40) or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
-              'nota': 'corte de señal tras el giro' if cayo_agua else ''}); fin.append(m)
+    g_ = geom(i, vi); m.update(g_)
+    if WS:
+        # windsurf: en la virada es normal quedar casi parado; se considera caída quedarse < 1,5 kn 12 s o más
+        # (levantar la vela / waterstart) o no volver a 4 kn en 60 s. En la trasluchada: < 2 kn 6 s o más.
+        if m['tipo'] == 'Virada':
+            caida_ = parada(t[i]-5, t[i]+60, 1.5, 12, SG) or not any(v[q] >= 4 for q in range(i, n) if seg[q] == SG and t[q] <= t[i]+60)
+        else:
+            caida_ = parada(t[i]-5, t[i]+40, 2.0, 6, SG)
+    else:
+        caida_ = blanco(c0, c0+40)
+    m.update({'resultado': 'Fallida' if (caida_ or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
+              'nota': 'corte de señal tras el giro' if cayo_agua else ''})
+    m['planeo'] = (None if WS or m['vmin'] is None else m['vmin'] >= 7)      # wingfoil: no bajó de 7 kn en todo el giro
+    fin.append(m)
 c = {}
 for m in fin:
     key = m['tipo']; c[key] = c.get(key, 0) + 1          # numeración consecutiva por tipo (completas y fallidas juntas)
@@ -287,6 +353,62 @@ for ty_ in ('Trasluchada', 'Virada'):
     va_ = [(m['v_out']-m['v_in'])/m['v_in'] for m in L_ if m['v_out'] is not None and m['v_in']]
     print(f"{ty_}s completas ({len(L_)}): entrada media {sum(vi_)/len(vi_):.2f} kn | salida media {sum(vo_)/len(vo_):.2f} kn | variación media {sum(va_)/len(va_)*100:+.1f}%")
 M = fin
+
+# 7b) NAVEGACIÓN ENTRE MANIOBRAS: rumbos respecto al viento, ángulo de ceñida y de largo por amura, VMG.
+#     Se usan los puntos con rumbo y velocidad >= V_NAV (wingfoil 7 kn = en planeo; windsurf 4 kn = navegando),
+#     fuera de los 12 s alrededor de cada maniobra y de cada parada.
+_lejos = sorted([m['t'] for m in M] + [x['t'] for x in caidas])
+def _cerca(tq):
+    k = bisect.bisect_left(_lejos, tq - 12)
+    return k < len(_lejos) and _lejos[k] <= tq + 12
+RUMBOS = [('Ceñida', 0, 70), ('Través', 70, 110), ('Largo', 110, 150), ('Popa', 150, 181)]
+NAVP = []          # (t, dt, v, twa, lado)
+for k in range(1, n):
+    i = k
+    if cog[i] is None or seg[i] != seg[i-1] or v[i] < V_NAV or _cerca(t[i]): continue
+    dt_ = min(t[i]-t[i-1], 2.0)
+    NAVP.append((t[i], dt_, v[i], twa(cog[i]), 'estribor' if 0 < (WIND_FROM - cog[i]) % 360 < 180 else 'babor', seg[i]))
+def _medp(xs):                                  # mediana ponderada por tiempo: [(valor, peso)]
+    xs = sorted(xs); tot = sum(w for _, w in xs)
+    if not tot: return None
+    acc = 0
+    for x, w in xs:
+        acc += w
+        if acc >= tot/2: return x
+TNAV = sum(p_[1] for p_ in NAVP)
+rumbos = []
+for nm_, a_, b_ in RUMBOS:
+    P_ = [p_ for p_ in NAVP if a_ <= p_[3] < b_]
+    tt_ = sum(p_[1] for p_ in P_)
+    lados = {}
+    for ld in ('babor', 'estribor'):
+        Q_ = [p_ for p_ in P_ if p_[4] == ld]; tq_ = sum(p_[1] for p_ in Q_)
+        lados[ld] = (sum(p_[1]*p_[2] for p_ in Q_)/tq_) if tq_ else None
+    rumbos.append({'rumbo': nm_, 'desde': a_, 'hasta': min(b_, 180), 'min': tt_/60, 'pct': (tt_/TNAV) if TNAV else None,
+                   'v_media': (sum(p_[1]*p_[2] for p_ in P_)/tt_) if tt_ else None, 'v_max': max((p_[2] for p_ in P_), default=None),
+                   'v_babor': lados['babor'], 'v_estribor': lados['estribor']})
+angulos = {}
+for ld in ('babor', 'estribor'):
+    up_ = [(p_[3], p_[1]) for p_ in NAVP if p_[4] == ld and p_[3] < 90]
+    dn_ = [(p_[3], p_[1]) for p_ in NAVP if p_[4] == ld and p_[3] > 90]
+    vu_ = [(p_[2]*math.cos(math.radians(p_[3])), p_[1]) for p_ in NAVP if p_[4] == ld and p_[3] < 90]
+    vd_ = [(-p_[2]*math.cos(math.radians(p_[3])), p_[1]) for p_ in NAVP if p_[4] == ld and p_[3] > 90]
+    angulos[ld] = {'cenida': _medp(up_), 'largo': _medp(dn_),
+                   'vmg_up': (sum(x*w for x, w in vu_)/sum(w for _, w in vu_)) if vu_ else None,
+                   'vmg_dn': (sum(x*w for x, w in vd_)/sum(w for _, w in vd_)) if vd_ else None,
+                   'min_up': sum(w for _, w in up_)/60, 'min_dn': sum(w for _, w in dn_)/60}
+def _mejor_vmg(signo):                          # mejor VMG sostenido 10 s (puntos consecutivos del mismo segmento)
+    best = (None, None); j0 = 0; acc = 0.0; accw = 0.0
+    for j in range(len(NAVP)):
+        if j > 0 and (NAVP[j][5] != NAVP[j-1][5] or NAVP[j][0] - NAVP[j-1][0] > 3): j0 = j; acc = accw = 0.0
+        x = signo * NAVP[j][2] * math.cos(math.radians(NAVP[j][3])); acc += x*NAVP[j][1]; accw += NAVP[j][1]
+        while NAVP[j][0] - NAVP[j0][0] > 10:
+            acc -= signo * NAVP[j0][2] * math.cos(math.radians(NAVP[j0][3])) * NAVP[j0][1]; accw -= NAVP[j0][1]; j0 += 1
+        if NAVP[j][0] - NAVP[j0][0] >= 8 and accw > 0 and (best[0] is None or acc/accw > best[0]): best = (acc/accw, NAVP[j][0])
+    return best
+VMGU, VMGU_T = _mejor_vmg(1); VMGD, VMGD_T = _mejor_vmg(-1)
+print(f"Navegación medida ({'>= %g kn' % V_NAV}): {TNAV/60:.1f} min | ceñida babor {angulos['babor']['cenida']} / estribor {angulos['estribor']['cenida']} | "
+      f"mejor VMG 10 s contra el viento {VMGU} / a favor {VMGD}")
 
 # 8) SALTOS con el acelerómetro (TotalAcceleration.csv, opcional: Sensor Logger o Wingfoil Tracker >= 1.5)
 #    En el aire el teléfono (en el pecho) marca mucho menos de 1 g: queda solo el tirón del ala.
@@ -403,7 +525,7 @@ icons = {('Virada', 'Completa'): ('grn-stars', 'Virada COMPLETA (sin caída)'), 
 _vkn = f" · {A.viento_kn:g} kn" if A.viento_kn is not None else ''
 _desc = " · ".join(x for x in (FECHA, A.lugar, f"Viento desde {VIENTO}{_vkn}") if x) + (f"<br/>{esc(A.comentario)}" if A.comentario else '')
 k_ = ['<?xml version="1.0" encoding="UTF-8"?>', '<kml xmlns="http://www.opengis.net/kml/2.2">', '<Document>',
-      f'<name>{esc(A.nombre) if A.nombre else "Track Wingfoil " + FECHA}</name>', f'<description><![CDATA[{_desc}]]></description>']
+      f'<name>{esc(A.nombre) if A.nombre else "Track " + DISC + " " + FECHA}</name>', f'<description><![CDATA[{_desc}]]></description>']
 for b, (col, l) in binfo.items(): k_.append(f'<Style id="line{b}"><LineStyle><color>{col}</color><width>4</width></LineStyle></Style>')
 for key, (ic, _) in icons.items(): k_.append(f'<Style id="{ic}"><IconStyle><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/{ic}.png</href></Icon></IconStyle></Style>')
 for s in range(NS):
@@ -421,7 +543,7 @@ for key, (ic, nm) in icons.items():
     if not L: continue
     k_.append(f'<Folder><name>{esc(nm)} ({len(L)})</name>')
     for m in L:
-        h = hora(m['t']); d = f"Hora: {h}<br/>Vel. entrada (40m): {m['v_in']:.1f} kn | Vel. salida (40m): {('%.1f' % m['v_out']) if m['v_out'] is not None else 's/d'} kn" + (f"<br/>Ángulo respecto {'a la popa redonda' if m['tipo'] == 'Trasluchada' else 'al enfachado'}: entrada (10-3 s antes) {('%.0f°' % m['ang_in']) if m['ang_in'] is not None else 's/d'} | salida (3-10 s después) {('%.0f°' % m['ang_out']) if m['ang_out'] is not None else 's/d'}") + (f"<br/>Viento por {m['amura']} antes del giro" if m.get('amura') else '') + (f"<br/>Nota: {m['nota']}" if m['nota'] else '')
+        h = hora(m['t']); d = f"Hora: {h}<br/>Vel. entrada (40m): {m['v_in']:.1f} kn | Vel. salida (40m): {('%.1f' % m['v_out']) if m['v_out'] is not None else 's/d'} kn" + (f"<br/>Ángulo respecto {'a la popa redonda' if m['tipo'] == 'Trasluchada' else 'al enfachado'}: entrada (10-3 s antes) {('%.0f°' % m['ang_in']) if m['ang_in'] is not None else 's/d'} | salida (3-10 s después) {('%.0f°' % m['ang_out']) if m['ang_out'] is not None else 's/d'}") + (f"<br/>Viento por {m['amura']} antes del giro" if m.get('amura') else '') + (f"<br/>Vel. mínima en el giro: {m['vmin']:.1f} kn" if m.get('vmin') is not None else '') + (f" | duración {m['dur']:.0f} s" if m.get('dur') is not None else '') + (f" | radio {m['radio']:.0f} m" if m.get('radio') is not None else '') + (f"<br/>Contra el viento: {m['barlo']:+.0f} m" if m.get('barlo') is not None else '') + (f" | recupera el 80% de la velocidad en {m['t_rec']:.0f} s" if m.get('t_rec') is not None else '') + ("<br/>En planeo: no bajó de 7 kn" if m.get('planeo') else '') + (f"<br/>Nota: {m['nota']}" if m['nota'] else '')
         k_.append(f'<Placemark><name>{esc(m["tipo"])} #{m["numero_grupo"]} — {h} ({m["resultado"]})</name><description><![CDATA[{d}]]></description><styleUrl>#{ic}</styleUrl><Point><coordinates>{m["lon"]:.7f},{m["lat"]:.7f},0</coordinates></Point></Placemark>')
     k_.append('</Folder>')
 k_.append('</Folder>')
@@ -443,28 +565,29 @@ if SALTOS:
 k_.append('<Style id="vmax"><IconStyle><scale>1.3</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/purple-stars.png</href></Icon></IconStyle></Style>')
 k_.append(f'<Placemark><name>Velocidad máxima 20 m: {VM20:.1f} kn — {hora(t[VM20a])}</name><description><![CDATA[Media de la velocidad GPS en el tramo de 20 m de mayor velocidad ({hora(t[VM20a])} a {hora(t[VM20b])}).]]></description><styleUrl>#vmax</styleUrl><Point><coordinates>{lon[VM20a]:.7f},{lat[VM20a]:.7f},0</coordinates></Point></Placemark>')
 k_ += ['</Document>', '</kml>']
-kml_path = os.path.join(A.outdir, f'track_wingfoil_{FECHA}_maniobras.kml'); open(kml_path, 'w', encoding='utf-8').write("\n".join(k_))
+kml_path = os.path.join(A.outdir, f'track_{A.disciplina}_{FECHA}_maniobras.kml'); open(kml_path, 'w', encoding='utf-8').write("\n".join(k_))
 
 F = 'Arial'; HF = PatternFill('solid', fgColor='1F4E78'); HFo = Font(name=F, bold=True, color='FFFFFF', size=10); N = Font(name=F, size=10); B = Font(name=F, bold=True, size=10)
 bd = Border(*(Side(style='thin', color='CCCCCC'),)*4)
 fills = {('Virada', 'Completa'): 'C6EFCE', ('Virada', 'Fallida'): 'FFC7CE', ('Trasluchada', 'Completa'): 'DDEBF7', ('Trasluchada', 'Fallida'): 'FCE4D6'}
 wb = Workbook(); wt = wb.active; wt.title = 'Track'
-for ci, h in enumerate(['t_seg', 'lat', 'lon', 'velocidad_kn', 'dist_acum_m', 'dt_seg', 'vel_media_seg_kn', 'dt_planeo_seg', 'segmento', 'dt_x_vel_planeo'], 1):
+for ci, h in enumerate(['t_seg', 'lat', 'lon', 'velocidad_kn', 'dist_acum_m', 'dt_seg', 'vel_media_seg_kn', 'dt_navegando_seg' if WS else 'dt_planeo_seg', 'segmento', 'dt_x_vel_navegando' if WS else 'dt_x_vel_planeo'], 1):
     x = wt.cell(1, ci, h); x.font = HFo; x.fill = HF
 for r, p in enumerate(track, 2):
     for ci, val in enumerate([round(p['t'], 3), round(p['lat'], 7), round(p['lon'], 7), round(p['speed_kn'], 3), round(p['cumdist'], 2)], 1): wt.cell(r, ci, val).font = N
     wt.cell(r, 9, p['seg'] + 1).font = N
     if r > 2:
-        wt.cell(r, 6, f"=IF(I{r}=I{r-1},A{r}-A{r-1},0)"); wt.cell(r, 7, f"=AVERAGE(D{r-1}:D{r})"); wt.cell(r, 8, f"=IF(G{r}>7,F{r},0)")
+        wt.cell(r, 6, f"=IF(I{r}=I{r-1},A{r}-A{r-1},0)"); wt.cell(r, 7, f"=AVERAGE(D{r-1}:D{r})"); wt.cell(r, 8, f"=IF(G{r}>{4 if WS else 7},F{r},0)")
         wt.cell(r, 10, f"=H{r}*G{r}")
 LR = len(track)+1; wt.freeze_panes = 'A2'
 wm = wb.create_sheet('Maniobras', 0); wm.sheet_view.showGridLines = False
-wm['A1'] = f'Track Wingfoil {FECHA} — Viradas y Trasluchadas (Completa vs Fallida)'; wm['A1'].font = Font(name=F, bold=True, size=14)
-wm['A2'] = (f'Viento desde {VIENTO}. "Completa" = sin caída SOSTENIDA (2+ muestras seguidas) bajo 4 nudos en los 40m posteriores al giro. "Fallida" = caída sostenida bajo 4 nudos en esos 40m. Si la señal GPS se corta (teléfono bajo el agua) antes de completar esos 40m, también es Fallida. Se excluye toda maniobra con velocidad de entrada (40m previos) < 6 nudos y los giros que no cruzan limpiamente ningún eje. Ángulos de entrada y salida: grados entre el rumbo promedio de 10 a 3 s antes del giro (o de 3 a 10 s después) y el eje que se cruza: la popa redonda en las trasluchadas y el enfachado (proa al viento) en las viradas. 0° = justo sobre el eje; cuanto más grande, más lejos del eje.')
-wm.merge_cells('A2:N2'); wm.row_dimensions[2].height = 52; wm['A2'].font = Font(name=F, italic=True, size=9, color='555555'); wm['A2'].alignment = Alignment(wrap_text=True, vertical='top')
-for ci, h in enumerate(['Nombre (igual que en el KML)', 'Tipo', 'Resultado', 'Tiempo transcurrido', 'Hora local', 'Latitud', 'Longitud', 'Vel. entrada 40m (kn)', 'Vel. salida 40m (kn)', 'Variación salida vs entrada (%)', 'Ángulo de entrada al eje, 10-3 s antes (°)', 'Ángulo de salida del eje, 3-10 s después (°)', 'Viento por (antes del giro)', 'Observación'], 1):
+wm['A1'] = f'Track {DISC} {FECHA} — Viradas y Trasluchadas (Completa vs Fallida)'; wm['A1'].font = Font(name=F, bold=True, size=14)
+wm['A2'] = (f'{DISC} · viento desde {VIENTO}. ' + wf_textos.buscar(wf_textos.maniobras(WS), 'Resultado') +
+            f' Se excluyen las maniobras con velocidad de entrada (40 m previos) menor a {V_ENT_MIN:g} kn y los giros que no cruzan limpiamente ningún eje. Qué es y para qué sirve cada columna: hoja Glosario.')
+wm.merge_cells('A2:T2'); wm.row_dimensions[2].height = 52; wm['A2'].font = Font(name=F, italic=True, size=9, color='555555'); wm['A2'].alignment = Alignment(wrap_text=True, vertical='top')
+for ci, h in enumerate(['Nombre (igual que en el KML)', 'Tipo', 'Resultado', 'Tiempo transcurrido', 'Hora local', 'Latitud', 'Longitud', 'Vel. entrada 40m (kn)', 'Vel. salida 40m (kn)', 'Variación salida vs entrada (%)', 'Ángulo de entrada al eje, 10-3 s antes (°)', 'Ángulo de salida del eje, 3-10 s después (°)', 'Viento por (antes del giro)', 'Observación', 'Vel. mínima en el giro (kn)', 'Duración del giro (s)', 'Radio del giro (m)', 'Metros contra el viento (+ ganados / − cedidos)', 'Recuperación al 80% de la vel. de entrada (s)', *([] if WS else ['En planeo (no bajó de 7 kn)'])], 1):
     x = wm.cell(4, ci, h); x.font = HFo; x.fill = HF; x.border = bd; x.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-wm.row_dimensions[4].height = 30
+wm.row_dimensions[4].height = 44
 for r, m in enumerate(M, 5):
     tr = m['t']-T0; fl = PatternFill('solid', fgColor=fills[(m['tipo'], m['resultado'])])
     vals = [m['nombre'], m['tipo'], m['resultado'], f"{int(tr//60):02d}:{int(tr%60):02d}", hora(m['t']), round(m['lat'], 6), round(m['lon'], 6), round(m['v_in'], 2), round(m['v_out'], 2) if m['v_out'] is not None else None]
@@ -475,23 +598,35 @@ for r, m in enumerate(M, 5):
         x.alignment = Alignment(horizontal='center'); x.number_format = '0"°"'
     x = wm.cell(r, 13, m.get('amura') or 's/d'); x.font = N; x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
     x = wm.cell(r, 14, m['nota']); x.font = N; x.fill = fl; x.border = bd
+    for ci, (val, nd) in enumerate(((m.get('vmin'), 1), (m.get('dur'), 0), (m.get('radio'), 0), (m.get('barlo'), 0), (m.get('t_rec'), 0)), 15):
+        x = wm.cell(r, ci, round(val, nd) if val is not None else None); x.font = N; x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
+        x.number_format = '0.0' if nd else ('+0;-0;0' if ci == 18 else '0')
+    if not WS:
+        x = wm.cell(r, 20, 's/d' if m.get('planeo') is None else ('Sí' if m['planeo'] else 'No')); x.font = N; x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
     x = wm.cell(r, 10, f'=IF(OR(H{r}="",I{r}="",H{r}=0),"s/d",(I{r}-H{r})/H{r})'); x.fill = fl; x.border = bd; x.alignment = Alignment(horizontal='center')
     x.number_format = '+0.0%;[Red]-0.0%;0.0%'; x.font = N
-for col, w in zip('ABCDEFGHIJKLMN', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 20, 20, 16, 26]): wm.column_dimensions[col].width = w
+for col, w in zip('ABCDEFGHIJKLMNOPQRST', [28, 14, 12, 16, 16, 12, 12, 18, 18, 20, 20, 20, 16, 26, 16, 14, 14, 20, 20, 16]): wm.column_dimensions[col].width = w
 wm.freeze_panes = 'A5'
 wr = wb.create_sheet('Resumen', 0); wr.sheet_view.showGridLines = False
-wr['B2'] = f'Resumen del recorrido — {A.nombre} ({FECHA})' if A.nombre else f'Resumen del recorrido — Wingfoil ({FECHA})'; wr['B2'].font = Font(name=F, bold=True, size=14)
+wr['B2'] = f'Resumen del recorrido — {A.nombre} ({FECHA})' if A.nombre else f'Resumen del recorrido — {DISC} ({FECHA})'; wr['B2'].font = Font(name=F, bold=True, size=14)
 last = max(5, 4+len(M))
 cnt = lambda ty, rs: f'=COUNTIFS(Maniobras!B5:B{last},"{ty}",Maniobras!C5:C{last},"{rs}")'
+L_PLAN = 'Tiempo navegando, >4 nudos (min)' if WS else 'Tiempo total de planeo, >7 nudos (min)'
+def _r(x, nd): return 's/d' if x is None else round(x, nd)
+def _mdx(ty_, k, nd):
+    xs = sorted(m[k] for m in M if m['tipo'] == ty_ and m['resultado'] == 'Completa' and m.get(k) is not None)
+    if not xs: return 's/d'
+    q = len(xs)//2; return round(xs[q] if len(xs) % 2 else (xs[q-1]+xs[q])/2, nd)
 rows = [*([('Nombre de la sesión', A.nombre, None)] if A.nombre else []),
+        ('Disciplina', DISC, None),
         *([('Lugar', A.lugar, None)] if A.lugar else []),
         *([('Intensidad del viento (kn)', A.viento_kn, '0.0')] if A.viento_kn is not None else []),
         *([('Comentario', A.comentario, None)] if A.comentario else []),
         ('Origen del archivo', ORIGEN_TXT, None),
         ('Dirección del viento (desde)', VIENTO, None), ('Distancia total recorrida (km)', f'=Track!E{LR}/1000', '0.00'),
-        ('Tiempo total del recorrido (min)', f'=SUM(Track!F3:F{LR})/60', '0.0'), ('Tiempo total de planeo, >7 nudos (min)', f'=SUM(Track!H3:H{LR})/60', '0.0'),
-        ('% del tiempo planeando', '={plan}/{tiempo}', '0.0%'),
-        ('Velocidad media de navegación en planeo, >7 nudos (kn)', f'=IF(SUM(Track!H3:H{LR})=0,"s/d",SUM(Track!J3:J{LR})/SUM(Track!H3:H{LR}))', '0.00'),
+        ('Tiempo total del recorrido (min)', f'=SUM(Track!F3:F{LR})/60', '0.0'), (L_PLAN, f'=SUM(Track!H3:H{LR})/60', '0.0'),
+        ('% del tiempo navegando (más de 4 nudos)' if WS else '% del tiempo planeando', '={plan}/{tiempo}', '0.0%'),
+        (('Velocidad media navegando, >4 nudos (kn)' if WS else 'Velocidad media de navegación en planeo, >7 nudos (kn)'), f'=IF(SUM(Track!H3:H{LR})=0,"s/d",SUM(Track!J3:J{LR})/SUM(Track!H3:H{LR}))', '0.00'),
         ('Velocidad máxima en un tramo de 20 m (kn)', round(VM20, 2), '0.00'),
         ('Hora de la velocidad máxima (20 m)', hora(t[VM20a]), None),
         ('Viradas completas (sin caída)', cnt('Virada', 'Completa'), None), ('Viradas fallidas (con caída)', cnt('Virada', 'Fallida'), None),
@@ -501,6 +636,20 @@ rows = [*([('Nombre de la sesión', A.nombre, None)] if A.nombre else []),
             (f'Velocidad promedio de entrada a {pl_} completas (kn)', f'=IFERROR(AVERAGEIFS(Maniobras!H5:H{last},Maniobras!B5:B{last},"{ty_}",Maniobras!C5:C{last},"Completa"),"s/d")', '0.00'),
             (f'Velocidad promedio de salida de {pl_} completas (kn)', f'=IFERROR(AVERAGEIFS(Maniobras!I5:I{last},Maniobras!B5:B{last},"{ty_}",Maniobras!C5:C{last},"Completa"),"s/d")', '0.00'),
             (f'Variación promedio salida vs entrada, {pl_} completas (%)', f'=IFERROR(AVERAGEIFS(Maniobras!J5:J{last},Maniobras!B5:B{last},"{ty_}",Maniobras!C5:C{last},"Completa"),"s/d")', '+0.0%;[Red]-0.0%;0.0%'))],
+        *[x for ty_, pl_ in (('Trasluchada', 'trasluchadas'), ('Virada', 'viradas')) for x in (
+            (f'Velocidad mínima en el giro, {pl_} completas (mediana, kn)', _mdx(ty_, 'vmin', 2), '0.0'),
+            (f'Duración del giro, {pl_} completas (mediana, s)', _mdx(ty_, 'dur', 0), '0'),
+            (f'Radio del giro, {pl_} completas (mediana, m)', _mdx(ty_, 'radio', 0), '0'),
+            (f'Metros contra el viento en el giro, {pl_} completas (mediana, m)', _mdx(ty_, 'barlo', 0), '+0;-0;0'),
+            (f'Tiempo para recuperar la velocidad, {pl_} completas (mediana, s)', _mdx(ty_, 't_rec', 0), '0'),
+            *([] if WS else [(f'Maniobras sin bajar de 7 kn (en planeo), {pl_}', sum(1 for m in M if m['tipo'] == ty_ and m.get('planeo')), None)]))],
+        *[x for ld in ('babor', 'estribor') for x in (
+            (f'Ángulo de ceñida, viento por {ld} (mediana, °)', _r(angulos[ld]['cenida'], 0), '0"°"'),
+            (f'Ángulo en el largo, viento por {ld} (mediana, °)', _r(angulos[ld]['largo'], 0), '0"°"'),
+            (f'VMG medio contra el viento, viento por {ld} (kn)', _r(angulos[ld]['vmg_up'], 2), '0.00'),
+            (f'VMG medio a favor del viento, viento por {ld} (kn)', _r(angulos[ld]['vmg_dn'], 2), '0.00'))],
+        ('Mejor VMG contra el viento, sostenido 10 s (kn)', _r(VMGU, 2), '0.00'),
+        ('Mejor VMG a favor del viento, sostenido 10 s (kn)', _r(VMGD, 2), '0.00'),
         ('Cortes de señal GPS (cantidad)', N_CORTES, None),
         ('Tiempo total sin señal (min)', round(T_SIN/60, 2), '0.0'),
         (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None)]
@@ -515,14 +664,48 @@ else:
     rows += [('Saltos', 'sin datos de acelerómetro', None)]
 _ref = {}
 for i, (l, vv, f) in enumerate(rows, 4): _ref[l] = f'C{i}'
-_k = {'plan': _ref['Tiempo total de planeo, >7 nudos (min)'], 'tiempo': _ref['Tiempo total del recorrido (min)'],
+_k = {'plan': _ref[L_PLAN], 'tiempo': _ref['Tiempo total del recorrido (min)'],
       'vc': _ref['Viradas completas (sin caída)'], 'vf': _ref['Viradas fallidas (con caída)'],
       'tc': _ref['Trasluchadas completas (sin caída)'], 'tf': _ref['Trasluchadas fallidas (con caída)']}
 rows = [(l, vv.format(**_k) if isinstance(vv, str) and vv.startswith('=') and '{' in vv and 'Track!' not in vv and 'Maniobras!' not in vv else vv, f) for l, vv, f in rows]
+_EX = wf_textos.resumen(WS)
+wr.cell(3, 2, 'Dato').font = HFo; wr.cell(3, 2).fill = HF; wr.cell(3, 3, 'Valor').font = HFo; wr.cell(3, 3).fill = HF
+wr.cell(3, 4, 'Qué es y para qué sirve').font = HFo; wr.cell(3, 4).fill = HF
 for i, (l, vv, f) in enumerate(rows, 4):
     wr.cell(i, 2, l).font = B; x = wr.cell(i, 3, vv); x.font = N
     if f: x.number_format = f
-wr.column_dimensions['B'].width = 46; wr.column_dimensions['C'].width = 20
+    x = wr.cell(i, 4, wf_textos.buscar(_EX, l)); x.font = Font(name=F, size=9, color='555555'); x.alignment = Alignment(wrap_text=True, vertical='top')
+    wr.cell(i, 2).alignment = Alignment(wrap_text=True, vertical='top'); wr.cell(i, 3).alignment = Alignment(vertical='top', horizontal='right')
+    wr.row_dimensions[i].height = max(15, 12.5 * (1 + len(wr.cell(i, 4).value or '') // 95))
+wr.column_dimensions['B'].width = 46; wr.column_dimensions['C'].width = 20; wr.column_dimensions['D'].width = 100
+wr.freeze_panes = 'A4'
+# hoja Rumbos: tiempo y velocidad por rumbo respecto al viento, y por amura
+wrb = wb.create_sheet('Rumbos', 2); wrb.sheet_view.showGridLines = False
+wrb['A1'] = f'Navegación por rumbo respecto al viento — {DISC} {FECHA} (viento desde {VIENTO})'; wrb['A1'].font = Font(name=F, bold=True, size=14)
+wrb['A2'] = wf_textos.buscar(wf_textos.rumbos(WS), 'Rumbo'); wrb.merge_cells('A2:H2'); wrb['A2'].font = Font(name=F, italic=True, size=9, color='555555')
+wrb['A2'].alignment = Alignment(wrap_text=True, vertical='top'); wrb.row_dimensions[2].height = 40
+for ci, h in enumerate(['Rumbo', 'Grados al viento', 'Tiempo (min)', '% del tiempo medido', 'Vel. media (kn)', 'Vel. máx. (kn)', 'Vel. media viento por babor (kn)', 'Vel. media viento por estribor (kn)'], 1):
+    x = wrb.cell(4, ci, h); x.font = HFo; x.fill = HF; x.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+wrb.row_dimensions[4].height = 30
+for r, q in enumerate(rumbos, 5):
+    for ci, (val, fm) in enumerate(((q['rumbo'], None), (f"{q['desde']} a {q['hasta']}°", None), (_r(q['min'], 1), '0.0'), (q['pct'] if q['pct'] is not None else 's/d', '0.0%'),
+                                     (_r(q['v_media'], 2), '0.00'), (_r(q['v_max'], 1), '0.0'), (_r(q['v_babor'], 2), '0.00'), (_r(q['v_estribor'], 2), '0.00')), 1):
+        x = wrb.cell(r, ci, val); x.font = B if ci == 1 else N; x.border = bd; x.alignment = Alignment(horizontal='left' if ci == 1 else 'center')
+        if fm: x.number_format = fm
+r0 = 5 + len(rumbos) + 1
+for k, (l, txt) in enumerate(wf_textos.rumbos(WS)[1:]):
+    wrb.cell(r0 + k, 1, l).font = B; x = wrb.cell(r0 + k, 2, txt); x.font = Font(name=F, size=9, color='555555')
+    wrb.merge_cells(start_row=r0 + k, start_column=2, end_row=r0 + k, end_column=8); x.alignment = Alignment(wrap_text=True, vertical='top'); wrb.row_dimensions[r0 + k].height = 28
+for col, w in zip('ABCDEFGH', [14, 14, 12, 14, 14, 12, 18, 18]): wrb.column_dimensions[col].width = w
+# hoja Glosario: qué es cada columna de la hoja Maniobras
+wg = wb.create_sheet('Glosario'); wg.sheet_view.showGridLines = False
+wg['A1'] = 'Glosario: qué es y para qué sirve cada columna de la hoja Maniobras'; wg['A1'].font = Font(name=F, bold=True, size=14)
+for ci, h in enumerate(['Columna', 'Qué es y para qué sirve'], 1):
+    x = wg.cell(3, ci, h); x.font = HFo; x.fill = HF
+for r, (l, txt) in enumerate(wf_textos.maniobras(WS), 4):
+    wg.cell(r, 1, l).font = B; x = wg.cell(r, 2, txt); x.font = N; x.alignment = Alignment(wrap_text=True, vertical='top')
+    wg.cell(r, 1).alignment = Alignment(vertical='top'); wg.row_dimensions[r].height = max(15, 13 * (1 + len(txt) // 110))
+wg.column_dimensions['A'].width = 22; wg.column_dimensions['B'].width = 120
 if ACC_OK:
     wsx = wb.create_sheet('Saltos', 2)
     for ci, h in enumerate(['Nombre', 'Resultado', 'Hora local', 'Tiempo en vuelo (s)', 'Altura máxima estimada (m)', 'Distancia en vuelo (m)', 'Velocidad al despegar (kn)', 'Velocidad después (kn)', 'Impacto al aterrizar (g)', 'Latitud', 'Longitud', 'Observación'], 1):
@@ -534,7 +717,7 @@ if ACC_OK:
             x = wsx.cell(r, ci, val); x.font = N; x.fill = flx
     for col, w in zip('ABCDEFGHIJKL', [24, 12, 12, 14, 16, 16, 16, 18, 18, 12, 12, 30]): wsx.column_dimensions[col].width = w
     wsx.row_dimensions[1].height = 30
-xlsx_path = os.path.join(A.outdir, f'track_wingfoil_{FECHA}_maniobras.xlsx'); wb.save(xlsx_path)
+xlsx_path = os.path.join(A.outdir, f'track_{A.disciplina}_{FECHA}_maniobras.xlsx'); wb.save(xlsx_path)
 print("KML:", kml_path); print("XLSX:", xlsx_path)
 
 # 9) JSON opcional con todos los resultados (para el PDF de la app)
@@ -542,6 +725,11 @@ if A.json:
     def _prom(L_, k):
         x_ = [m[k] for m in L_ if m.get(k) is not None]
         return sum(x_)/len(x_) if x_ else None
+    def _mediana(xs):
+        xs = sorted(x for x in xs if x is not None)
+        if not xs: return None
+        k = len(xs)//2
+        return xs[k] if len(xs) % 2 else (xs[k-1]+xs[k])/2
     def _var(L_):
         x_ = [(m['v_out']-m['v_in'])/m['v_in'] for m in L_ if m['v_out'] is not None and m['v_in']]
         return sum(x_)/len(x_) if x_ else None
@@ -551,10 +739,20 @@ if A.json:
     for ty_ in ('Trasluchada', 'Virada'):
         L_ = [m for m in M if m['tipo'] == ty_ and m['resultado'] == 'Completa']    # velocidades y variación: solo completas
         c_, f_ = cnts[f'{ty_}_Completa'], cnts[f'{ty_}_Fallida']
+        Lf_ = [m for m in M if m['tipo'] == ty_ and m['resultado'] == 'Fallida']
+        Pl_ = [m for m in M if m['tipo'] == ty_ and m.get('planeo') is not None]
         por_tipo[ty_] = {'completas': c_, 'fallidas': f_, 'exito': (c_/(c_+f_)) if c_+f_ else None,
-                         'v_in': _prom(L_, 'v_in'), 'v_out': _prom(L_, 'v_out'), 'variacion': _var(L_)}
+                         'v_in': _prom(L_, 'v_in'), 'v_out': _prom(L_, 'v_out'), 'variacion': _var(L_),
+                         'en_planeo': sum(1 for m in Pl_ if m['planeo']), 'en_planeo_pct': (sum(1 for m in Pl_ if m['planeo'])/len(Pl_)) if Pl_ else None,
+                         **{f'{k}_med': _mediana([m.get(k) for m in L_]) for k in ('vmin', 'dur', 'radio', 'barlo', 't_rec')},
+                         **{f'{k}_med_f': _mediana([m.get(k) for m in Lf_]) for k in ('vmin', 'dur', 'radio', 'barlo')}}
     paso = max(1, n // 5000)
     res = {
+        'disciplina': A.disciplina, 'v_nav': V_NAV, 'v_ent_min': V_ENT_MIN,
+        'nav_min': nav4/60, 'vel_media_nav': navv4,
+        'rumbos': rumbos, 'angulos': angulos, 'nav_medida_min': TNAV/60,
+        'vmg_up': VMGU, 'vmg_up_hora': hora(VMGU_T) if VMGU_T is not None else None,
+        'vmg_dn': VMGD, 'vmg_dn_hora': hora(VMGD_T) if VMGD_T is not None else None,
         'fecha': FECHA, 'origen': ORIGEN_TXT, 'viento': WIND_FROM, 'secciones': NS,
         'nombre': A.nombre, 'lugar': A.lugar, 'viento_kn': A.viento_kn, 'comentario': A.comentario,
         'hora_inicio': hora(t[0]), 'hora_fin': hora(t[-1]),
@@ -569,6 +767,8 @@ if A.json:
                        'lat': m['lat'], 'lon': m['lon'], 'v_in': m['v_in'], 'v_out': m['v_out'],
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
                        'ang_in': m['ang_in'], 'ang_out': m['ang_out'], 'amura': m.get('amura'), 't_rel': m['t']-T0,
+                       'dur': m.get('dur'), 'radio': m.get('radio'), 'vmin': m.get('vmin'), 'barlo': m.get('barlo'),
+                       't_rec': m.get('t_rec'), 'planeo': m.get('planeo'),
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
         'acc': ACC_OK, 'salto_min': SALTO_MIN, 'salto_h_min': A.salto_h_min,
         'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'dist': e_['dist'], 'v_in': e_['v_in'],
