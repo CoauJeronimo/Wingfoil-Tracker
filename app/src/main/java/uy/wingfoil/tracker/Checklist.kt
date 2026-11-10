@@ -29,10 +29,9 @@ object Checklist {
     private val VERDE = Color.rgb(46, 229, 157); private val MUT = Color.rgb(143, 169, 199)
 
     private val DEFAULT = listOf(
-        "Wing (sin roturas, válvulas cerradas)", "Inflador", "Tabla", "Foil: mástil, fuselaje, ala delantera y estabilizador",
-        "Tornillos y llave del foil", "Leash de la wing", "Leash de la tabla", "Casco", "Chaleco / protección de impacto",
-        "Traje, botitas y guantes", "Teléfono cargado, en la funda estanca", "App grabando (GPS OK)",
-        "Agua y protector solar", "Revisar viento y pronóstico")
+        "Foil: mástil, fuselaje, ala delantera y estabilizador", "Tornillos y llave del foil", "Tabla", "Wing / PW",
+        "Inflador / caño conector", "Leash del wing", "Leash de la tabla", "Casco", "Chaleco / protección de impacto",
+        "Traje, botitas y guantes", "Teléfono cargado, en la funda estanca", "Agua y protector solar")
 
     private fun cargar(act: Activity): MutableList<JSONObject> {
         val p = act.getSharedPreferences("wf", Activity.MODE_PRIVATE)
