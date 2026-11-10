@@ -328,6 +328,17 @@ for m in dd:
     if h_in is None: h_in = avgh(t[i]-18, t[i]-3, seg[i])
     m['amura'] = None if h_in is None else ('estribor' if 0 < (WIND_FROM - h_in) % 360 < 180 else 'babor')
     g_ = geom(i, vi); m.update(g_)
+    # Corte de señal al salir: si antes del corte ya habías terminado el giro (pasaste al otro lado del eje,
+    # a 30° o más de él) sin bajar de la velocidad mínima de entrada, el giro salió bien: la caída, si la hubo, fue después.
+    giro_ok = False
+    if cayo_agua and m.get('amura'):
+        ql = max(q for q in range(i, n) if seg[q] == SG)
+        if cog[ql] is not None and t[ql] - t[i] >= 2:
+            lado_sal = 'estribor' if 0 < (WIND_FROM - cog[ql]) % 360 < 180 else 'babor'
+            tw_ = twa(cog[ql]); lejos_eje = tw_ >= 30 if m['tipo'] == 'Virada' else tw_ <= 150
+            vmin_ = min(v[q] for q in range(bisect.bisect_left(t, t[i] - 3), ql + 1) if seg[q] == SG)
+            giro_ok = lado_sal != m['amura'] and lejos_eje and vmin_ >= V_ENT_MIN
+    if giro_ok: cayo_agua = False
     if WS:
         # windsurf: en la virada es normal quedar casi parado; se considera caída quedarse < 1,5 kn 12 s o más
         # (levantar la vela / waterstart) o no volver a 4 kn en 60 s. En la trasluchada: < 2 kn 6 s o más.
@@ -338,7 +349,7 @@ for m in dd:
     else:
         caida_ = blanco(c0, c0+40)
     m.update({'resultado': 'Fallida' if (caida_ or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
-              'nota': 'corte de señal tras el giro' if cayo_agua else ''})
+              'nota': 'corte de señal tras el giro' if cayo_agua else ('señal cortada al salir: giro terminado, la caída fue después' if giro_ok else '')})
     m['planeo'] = (None if WS or m['vmin'] is None else m['vmin'] >= 7)      # wingfoil: no bajó de 7 kn en todo el giro
     fin.append(m)
 c = {}
