@@ -39,8 +39,11 @@ def puntos(session_dir, utc=-3.0):
         ac = _f(r, 'horizontalAccuracy')
         if None in (la, lo, sp, t): continue
         if ac is not None and ac > maxacc: continue
-        raw.append((t, la, lo, sp*K))
+        raw.append((t, la, lo, sp*K, ac))
     raw.sort(key=lambda x: x[0])
+    import wf_senal
+    dud, _, _ = wf_senal.dudosos(raw, reenganche='gpx importado' not in meta.get('appversion', '').lower())
+    raw = [x[:4] for x in raw]
     if not raw: return [], ep
     if 'gpx importado' in meta.get('appversion', '').lower() and len(raw) > 2:   # mismo criterio que el análisis
         dts = sorted(raw[k+1][0] - raw[k][0] for k in range(len(raw)-1) if raw[k+1][0] > raw[k][0])
@@ -59,7 +62,7 @@ def puntos(session_dir, utc=-3.0):
     for k, c in enumerate(cl):
         if k and gap > 0 and c[0] - cl[k-1][0] > gap: seg += 1
         h = (datetime.datetime.fromtimestamp(ep + c[0], datetime.timezone.utc) + datetime.timedelta(hours=utc)).strftime('%H:%M:%S')
-        out.append([round(c[0], 2), round(c[1], 7), round(c[2], 7), round(c[3], 2), seg, h])
+        out.append([round(c[0], 2), round(c[1], 7), round(c[2], 7), round(c[3], 2), seg, h, 1 if c[0] in dud else 0])
     return out, ep
 
 

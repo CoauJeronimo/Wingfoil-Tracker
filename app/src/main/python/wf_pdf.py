@@ -702,7 +702,8 @@ def informe(R, path, sat=True, fetch=None):
         filas += [("Mejor VMG contra el viento (sostenido 10 s)", _md(R.get('vmg_up'), 2, ' kn') + (f"  ({R['vmg_up_hora']})" if R.get('vmg_up_hora') else '')),
                   ("Mejor VMG a favor del viento (sostenido 10 s)", _md(R.get('vmg_dn'), 2, ' kn') + (f"  ({R['vmg_dn_hora']})" if R.get('vmg_dn_hora') else ''))]
     filas += [("Cortes de señal GPS", str(R['cortes'])), ("Tiempo total sin señal", _n(R['sin_senal_min'], 1, ' min')),
-              (f"Puntos descartados por precisión (> {R['max_acc']:g} m)", str(R['descartados_precision']))]
+              (f"Puntos descartados por precisión (> {R['max_acc']:g} m)", str(R['descartados_precision'])),
+              ("Lecturas dudosas no usadas para la velocidad máxima", str(R.get('descartados_inestable', 0)))]
     if R.get('acc'):
         SL = R.get('saltos', []); top_ = max(SL, key=lambda e: e['altura']) if SL else None
         sc_ = sum(e['resultado'] == 'Completo' for e in SL)

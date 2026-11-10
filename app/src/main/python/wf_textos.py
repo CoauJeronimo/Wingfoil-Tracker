@@ -47,6 +47,7 @@ def resumen(ws=False):
         ('Cortes de señal GPS', 'Veces que el GPS dejó de dar puntos válidos más de unos segundos (por ejemplo, teléfono bajo el agua en una caída). Esos huecos no suman tiempo ni distancia.'),
         ('Tiempo total sin señal', 'Suma de la duración de los cortes de señal.'),
         ('Puntos descartados por precisión', 'Puntos GPS con mala precisión que se descartaron para no ensuciar el recorrido. Si son muchos, el teléfono tenía mala señal (funda, posición, cielo cubierto).'),
+        ('Lecturas dudosas no usadas para la velocidad máxima', 'Lecturas del GPS poco confiables: los primeros 5 s después de un corte de señal (al re-enganchar, el GPS suele dar velocidades disparatadas, por ejemplo 33 kn) y los puntos en que la precisión empeora de golpe justo antes de perder la señal. Siguen en el recorrido y en las maniobras, pero no cuentan para la velocidad máxima.'),
         ('Saltos', 'Saltos detectados con el acelerómetro: vuelo de 1 s o más y altura estimada de 0,5 m o más (así el paso de una ola no cuenta).'),
         ('Saltos completos', 'Saltos después de los que seguiste navegando.'),
         ('Saltos fallidos', 'Saltos que terminaron en caída (velocidad bajo 4 kn más de 5 s o corte de señal).'),

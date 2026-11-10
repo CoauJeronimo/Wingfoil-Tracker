@@ -14,7 +14,7 @@ Uso:
   que es el defecto para Sensor Logger). El corte se trata igual que un --exclude: no suma tiempo, distancia ni planeo.
 Requiere: python3 + openpyxl.
 """
-import wf_textos
+import wf_textos, wf_senal
 import csv, math, json, bisect, argparse, os, datetime, io, zipfile, array
 from collections import Counter
 from openpyxl import Workbook
@@ -99,8 +99,11 @@ for r in csv.DictReader(loc_f):
     except ValueError: continue
     if None in (la, lo, sp, t): continue
     if ac is not None and ac > MAXACC: n_acc += 1; continue
-    raw.append((t, la, lo, sp * K))
+    raw.append((t, la, lo, sp * K, ac))
 raw.sort(key=lambda x: x[0])
+DUD, n_reeng, n_inest = wf_senal.dudosos(raw, reenganche=ORIGEN != 'GPX importado')
+raw = [x[:4] for x in raw]
+print(f"Lecturas dudosas (no se usan para la velocidad máxima): {n_reeng} al re-enganchar tras un corte, {n_inest} con la precisión empeorando de golpe")
 if ORIGEN == 'GPX importado' and A.gap is None and len(raw) > 2:     # GPX: corte por hueco según su frecuencia de puntos
     _dts = sorted(raw[k+1][0] - raw[k][0] for k in range(len(raw)-1) if raw[k+1][0] > raw[k][0])
     GAP = max(5.0, 3 * _dts[len(_dts)//2]) if _dts else 5.0
@@ -153,14 +156,15 @@ navv4 = sum((t[i]-t[i-1])*(v[i]+v[i-1])/2 for i in range(1, n) if seg[i] == seg[
 print(f"Navegando (>4 kn) {nav4/60:.1f} min | vel. media navegando {navv4:.2f} kn")
 print(f"Tiempo {tt/60:.1f} min | Dist {cd[-1]/1000:.2f} km | Planeo {plan/60:.1f} min ({plan/tt*100:.1f}%) | Vel media en planeo (>7 kn) {navv:.2f} kn | puntos {n} | segmentos {seg[-1]+1}")
 # VELOCIDAD MÁXIMA EN 20 m: media de la velocidad GPS de los puntos de cada tramo de 20 m (mismo segmento); se toma el máximo
-ps = [0.0]
+ps = [0.0]; pd_ = [0]
 for x in v: ps.append(ps[-1] + x)
+for x in t: pd_.append(pd_[-1] + (1 if x in DUD else 0))
 vmax20 = (0.0, 0, 0); k2 = 0
 for i0_ in range(n):
     k2 = max(k2, i0_)
     if k2 > i0_ and seg[k2] != seg[i0_]: k2 = i0_
     while k2+1 < n and seg[k2+1] == seg[i0_] and cd[k2]-cd[i0_] < 20: k2 += 1
-    if cd[k2]-cd[i0_] >= 20:
+    if cd[k2]-cd[i0_] >= 20 and pd_[k2+1] == pd_[i0_]:      # sin lecturas dudosas en el tramo
         m_ = (ps[k2+1]-ps[i0_])/(k2-i0_+1)
         if m_ > vmax20[0]: vmax20 = (m_, i0_, k2)
 VM20, VM20a, VM20b = vmax20
@@ -679,7 +683,8 @@ rows = [*([('Nombre de la sesión', A.nombre, None)] if A.nombre else []),
         ('Mejor VMG a favor del viento, sostenido 10 s (kn)', _r(VMGD, 2), '0.00'),
         ('Cortes de señal GPS (cantidad)', N_CORTES, None),
         ('Tiempo total sin señal (min)', round(T_SIN/60, 2), '0.0'),
-        (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None)]
+        (f'Puntos descartados por precisión (> {MAXACC:g} m)', n_acc, None),
+        ('Lecturas dudosas no usadas para la velocidad máxima', n_reeng + n_inest, None)]
 if ACC_OK:
     _sc = sum(e_['resultado'] == 'Completo' for e_ in SALTOS); _sf = len(SALTOS) - _sc
     rows += [(f'Saltos (vuelo de {SALTO_MIN:g} s o más y {A.salto_h_min:g} m o más)', len(SALTOS), None),
@@ -787,7 +792,7 @@ if A.json:
         'distancia_km': cd[-1]/1000, 'tiempo_min': tt/60, 'planeo_min': plan/60,
         'planeo_pct': (plan/tt) if tt else 0, 'vel_media_planeo': navv,
         'vmax20': VM20, 'vmax20_hora': hora(t[VM20a]), 'vmax20_lat': lat[VM20a], 'vmax20_lon': lon[VM20a], 'vmax20_cd': cd[VM20a],
-        'cortes': N_CORTES, 'sin_senal_min': T_SIN/60, 'descartados_precision': n_acc, 'max_acc': MAXACC,
+        'cortes': N_CORTES, 'sin_senal_min': T_SIN/60, 'descartados_precision': n_acc, 'descartados_inestable': n_reeng + n_inest, 'max_acc': MAXACC,
         'excluidos': [[hora(a_), hora(b_)] for a_, b_ in EXC],
         'por_tipo': por_tipo,
         'maniobras': [{'nombre': m['nombre'], 'tipo': m['tipo'], 'resultado': m['resultado'],

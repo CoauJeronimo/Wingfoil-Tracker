@@ -128,13 +128,13 @@ object Video {
             if (r != null) for (k in 0 until r.length()) { val a = r.getJSONArray(k); excl.add(Pair(a.getString(0), a.getString(1))) }
         } catch (_: Exception) { }
         val a = j.getJSONArray("puntos")
-        val lat = ArrayList<Double>(); val lon = ArrayList<Double>(); val t = ArrayList<Double>(); val v = ArrayList<Double>(); val sg = ArrayList<Int>()
+        val lat = ArrayList<Double>(); val lon = ArrayList<Double>(); val t = ArrayList<Double>(); val v = ArrayList<Double>(); val sg = ArrayList<Int>(); val dud = ArrayList<Int>()
         var segExtra = 0; var antesExcl = false
         for (i in 0 until a.length()) {
             val p = a.getJSONArray(i); val h = p.getString(5)
             if (excl.any { h >= it.first && h <= it.second }) { antesExcl = true; continue }
             if (antesExcl) { segExtra += 1000; antesExcl = false }
-            t.add(p.getDouble(0)); lat.add(p.getDouble(1)); lon.add(p.getDouble(2)); v.add(p.getDouble(3)); sg.add(p.getInt(4) + segExtra)
+            t.add(p.getDouble(0)); lat.add(p.getDouble(1)); lon.add(p.getDouble(2)); v.add(p.getDouble(3)); sg.add(p.getInt(4) + segExtra); dud.add(if (p.length() > 6) p.getInt(6) else 0)
         }
         val n = t.size
         if (n < 10) throw Exception("La sesión no tiene suficientes puntos para el video.")
@@ -154,12 +154,13 @@ object Video {
         val vmaxHasta = DoubleArray(n)
         run {
             val ps = DoubleArray(n + 1); for (i in 0 until n) ps[i + 1] = ps[i] + v[i]
+            val pd = IntArray(n + 1); for (i in 0 until n) pd[i + 1] = pd[i] + dud[i]   // lecturas dudosas: no cuentan para la máxima
             var k2 = 0
             for (i0 in 0 until n) {
                 k2 = max(k2, i0)
                 if (k2 > i0 && sg[k2] != sg[i0]) k2 = i0
                 while (k2 + 1 < n && sg[k2 + 1] == sg[i0] && dist[k2] - dist[i0] < 20) k2++
-                if (dist[k2] - dist[i0] >= 20) { val m_ = (ps[k2 + 1] - ps[i0]) / (k2 - i0 + 1); if (m_ > vmaxHasta[k2]) vmaxHasta[k2] = m_ }
+                if (dist[k2] - dist[i0] >= 20 && pd[k2 + 1] == pd[i0]) { val m_ = (ps[k2 + 1] - ps[i0]) / (k2 - i0 + 1); if (m_ > vmaxHasta[k2]) vmaxHasta[k2] = m_ }
             }
             for (i in 1 until n) vmaxHasta[i] = max(vmaxHasta[i], vmaxHasta[i - 1])
         }
