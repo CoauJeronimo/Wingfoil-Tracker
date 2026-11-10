@@ -88,7 +88,12 @@ class MainActivity : Activity() {
                 setImageResource(R.mipmap.ic_launcher)
                 layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { rightMargin = dp(12) }
             })
-            addView(text(21f, Color.WHITE, true).apply { text = "Wingfoil & PW Tracker" })
+            val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "" }
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(text(21f, Color.WHITE, true).apply { text = "Wingfoil & PW Tracker" })
+                addView(text(13f, mut).apply { text = "versión $ver" })
+            })
         })
 
         val panel = LinearLayout(this).apply {
@@ -96,7 +101,7 @@ class MainActivity : Activity() {
             setPadding(dp(14), dp(14), dp(14), dp(14)); gravity = Gravity.CENTER_HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(12) }
         }
-        tvTime = text(54f, Color.WHITE, true).apply { text = "00:00:00"; typeface = Typeface.MONOSPACE; gravity = Gravity.CENTER }
+        tvTime = text(38f, Color.WHITE, true).apply { text = "00:00:00"; typeface = Typeface.MONOSPACE; gravity = Gravity.CENTER }
         tvState = text(18f, mut, true).apply { text = "Listo para grabar"; gravity = Gravity.CENTER }
         tvStats = text(15f, mut).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, 0) }
         panel.addView(tvTime); panel.addView(tvState); panel.addView(tvStats)
@@ -111,6 +116,13 @@ class MainActivity : Activity() {
             if (TrackService.running) confirmStop(); true
         }
         root.addView(btnMain)
+
+        root.addView(button("Checklist de Equipamiento", card, Color.rgb(46, 229, 157)).apply {
+            textSize = 17f
+            setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_checklist, 0, 0, 0)
+            compoundDrawablePadding = dp(10); gravity = Gravity.CENTER
+            setOnClickListener { Checklist.mostrar(this@MainActivity) }
+        })
 
         btnResume = button("⟳  Reanudar grabación interrumpida", Color.rgb(255, 190, 11))
         btnResume.setOnClickListener { tryStart(resume = true) }

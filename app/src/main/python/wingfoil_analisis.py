@@ -668,7 +668,8 @@ rows = [*([('Nombre de la sesión', A.nombre, None)] if A.nombre else []),
             (f'Radio del giro, {pl_} completas (mediana, m)', _mdx(ty_, 'radio', 0), '0'),
             (f'Metros contra el viento en el giro, {pl_} completas (mediana, m)', _mdx(ty_, 'barlo', 0), '+0;-0;0'),
             (f'Tiempo para recuperar la velocidad, {pl_} completas (mediana, s)', _mdx(ty_, 't_rec', 0), '0'),
-            *([] if WS else [(f'Maniobras sin bajar de 7 kn (en planeo), {pl_}', sum(1 for m in M if m['tipo'] == ty_ and m.get('planeo')), None)]))],
+            *([] if WS else [(f'Maniobras sin bajar de 7 kn (en planeo), {pl_}', sum(1 for m in M if m['tipo'] == ty_ and m.get('planeo')), None),
+                             (f'Completas tocando el agua, {pl_}', sum(1 for m in M if m['tipo'] == ty_ and m.get('toque')), None)]))],
         *[x for ld in ('babor', 'estribor') for x in (
             (f'Ángulo de ceñida, viento por {ld} (mediana, °)', _r(angulos[ld]['cenida'], 0), '0"°"'),
             (f'Ángulo en el largo, viento por {ld} (mediana, °)', _r(angulos[ld]['largo'], 0), '0"°"'),
@@ -769,6 +770,7 @@ if A.json:
         Pl_ = [m for m in M if m['tipo'] == ty_ and m.get('planeo') is not None]
         por_tipo[ty_] = {'completas': c_, 'fallidas': f_, 'exito': (c_/(c_+f_)) if c_+f_ else None,
                          'v_in': _prom(L_, 'v_in'), 'v_out': _prom(L_, 'v_out'), 'variacion': _var(L_),
+                         'toques': sum(1 for m in L_ if m.get('toque')),
                          'en_planeo': sum(1 for m in Pl_ if m['planeo']), 'en_planeo_pct': (sum(1 for m in Pl_ if m['planeo'])/len(Pl_)) if Pl_ else None,
                          **{f'{k}_med': _mediana([m.get(k) for m in L_]) for k in ('vmin', 'dur', 'radio', 'barlo', 't_rec')},
                          **{f'{k}_med_f': _mediana([m.get(k) for m in Lf_]) for k in ('vmin', 'dur', 'radio', 'barlo')}}
@@ -794,7 +796,7 @@ if A.json:
                        'variacion': ((m['v_out']-m['v_in'])/m['v_in']) if m['v_out'] is not None and m['v_in'] else None,
                        'ang_in': m['ang_in'], 'ang_out': m['ang_out'], 'amura': m.get('amura'), 't_rel': m['t']-T0,
                        'dur': m.get('dur'), 'radio': m.get('radio'), 'vmin': m.get('vmin'), 'barlo': m.get('barlo'),
-                       't_rec': m.get('t_rec'), 'planeo': m.get('planeo'),
+                       't_rec': m.get('t_rec'), 'planeo': m.get('planeo'), 'toque': m.get('toque', False),
                        'nota': m['nota'], 'cd': cd[min(range(n), key=lambda q: abs(t[q]-m['t']))]} for m in M],
         'acc': ACC_OK, 'salto_min': SALTO_MIN, 'salto_h_min': A.salto_h_min,
         'saltos': [{'nombre': e_['nombre'], 'hora': hora(e_['t']), 'aire': e_['aire'], 'altura': e_['altura'], 'dist': e_['dist'], 'v_in': e_['v_in'],

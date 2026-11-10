@@ -483,6 +483,7 @@ def rendimiento(p, R):
             if not WS:
                 Pc = [m for m in L if m.get('planeo') is not None]
                 filas.append(["Sin bajar de 7 kn (en planeo)", f"{sum(1 for m in C if m.get('planeo'))} de {len(C)}", f"{sum(1 for m in F if m.get('planeo'))} de {len(F)}"])
+                filas.append(["Tocó el agua y siguió", f"{sum(1 for m in C if m.get('toque'))} de {len(C)}", '-'])
             tabla(["Mediana", "Completas", "Fallidas"], filas, [190, 125, 125])
             txt = []
             rc, rf = _med([m.get('radio') for m in C]), _med([m.get('radio') for m in F])
@@ -691,7 +692,8 @@ def informe(R, path, sat=True, fetch=None):
                       (f"Radio del giro ({pl} completas, mediana)", _md(X.get('radio_med'), 0, ' m')),
                       (f"Metros contra el viento en el giro ({pl} completas, mediana)", _sg(X.get('barlo_med'))),
                       (f"Tiempo para recuperar la velocidad ({pl} completas, mediana)", _md(X.get('t_rec_med'), 0, ' s'))]
-            if not WS: filas += [(f"Maniobras sin bajar de 7 kn, en planeo ({pl})", f"{X.get('en_planeo', 0)}  ({_pct(X.get('en_planeo_pct'))})")]
+            if not WS: filas += [(f"Maniobras sin bajar de 7 kn, en planeo ({pl})", f"{X.get('en_planeo', 0)}  ({_pct(X.get('en_planeo_pct'))})"),
+                                 (f"Completas tocando el agua ({pl})", str(X.get('toques', 0)))]
     if ANG:
         for ld in ('babor', 'estribor'):
             a_ = ANG.get(ld, {})
