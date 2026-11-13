@@ -360,8 +360,9 @@ for m in dd:
     m['amura'] = None if h_in is None else ('estribor' if 0 < (WIND_FROM - h_in) % 360 < 180 else 'babor')
     g_ = geom(i, vi); m.update(g_)
     # Corte de señal al salir: si antes del corte ya navegabas del otro lado del eje (a 30° o más de él) y otra vez
-    # en planeo (7 kn o más), sin haber bajado de 4 kn en el giro, el giro salió bien: la caída, si la hubo, fue
-    # después (por ejemplo en la maniobra siguiente).
+    # en planeo (7 kn o más), sin haber bajado de 6 kn en el giro (siempre en vuelo), el giro salió bien: la caída,
+    # si la hubo, fue después (por ejemplo en la maniobra siguiente). Si bajó de 6 kn y después se cortó la señal,
+    # se toma como caída.
     giro_ok = False
     if cayo_agua and m.get('amura'):
         ql = max(q for q in range(i, n) if seg[q] == SG)
@@ -369,7 +370,7 @@ for m in dd:
         for q in range(bisect.bisect_left(t, t[i] - 3), ql + 1):
             if seg[q] != SG: continue
             vmin_ = min(vmin_, v[q])
-            if vmin_ < 4: break
+            if vmin_ < 6: break
             if q <= i or cog[q] is None or v[q] < 7: continue
             lado_sal = 'estribor' if 0 < (WIND_FROM - cog[q]) % 360 < 180 else 'babor'
             tw_ = twa(cog[q])
