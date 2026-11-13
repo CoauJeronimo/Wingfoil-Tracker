@@ -393,14 +393,17 @@ for m in dd:
         while q < n and seg[q] == SG and cd[q] <= c0 + 40 and v[q] >= 4: q += 1
         if q < n and seg[q] == SG and cd[q] <= c0 + 40:
             q2 = q
-            while q2 < n and seg[q2] == SG and t[q2] - t[q] <= 5 and v[q2] < 7: q2 += 1
-            if q2 < n and seg[q2] == SG and t[q2] - t[q] <= 5:
+            # en la virada es normal que la velocidad baje bastante al cruzar la línea del viento con la tabla girando:
+            # ahí se dan hasta 10 s para volver a 7 kn (en la trasluchada, 5 s)
+            lim_ = 10 if m['tipo'] == 'Virada' else 5
+            while q2 < n and seg[q2] == SG and t[q2] - t[q] <= lim_ and v[q2] < 7: q2 += 1
+            if q2 < n and seg[q2] == SG and t[q2] - t[q] <= lim_:
                 sig = [v[k] for k in range(q2, n) if seg[k] == SG and t[k] <= t[q2] + 4]
-                if len(sig) >= 3 and all(7 <= x <= 1.6 * vi for x in sig):
+                if len(sig) >= 3 and sum(sig) / len(sig) >= 7 and min(sig) >= 5.5 and max(sig) <= 1.6 * vi:
                     toque = t[q2] - t[q]; caida_ = False
     m.update({'resultado': 'Fallida' if (caida_ or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
               'nota': 'corte de señal tras el giro' if cayo_agua else ('señal cortada al salir: giro terminado, la caída fue después' if giro_ok else
-                      (f'tocó el agua y siguió (volvió a 7 kn en {toque:.0f} s)' if toque is not None else ''))})
+                      ((f'bajó al cruzar el viento y siguió (volvió a 7 kn en {toque:.0f} s)' if m['tipo'] == 'Virada' else f'tocó el agua y siguió (volvió a 7 kn en {toque:.0f} s)') if toque is not None else ''))})
     m['toque'] = toque is not None
     m['planeo'] = (None if WS or m['vmin'] is None else m['vmin'] >= 7)      # wingfoil: no bajó de 7 kn en todo el giro
     fin.append(m)
