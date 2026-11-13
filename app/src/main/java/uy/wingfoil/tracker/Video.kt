@@ -50,8 +50,9 @@ object Video {
     private const val FPS = 30
     private const val T_INTRO = 5.0            // paneo 360° del área antes de arrancar
     private const val T_OUTRO = 5.0            // paneo 360° del área al terminar
+    private const val T_QUIETO = 2.0           // imagen quieta al final (con la rosa de los vientos)
     // recorrido animado: 0,4 s por minuto de navegación, entre 25 y 50 s (video total 35-60 s)
-    private fun durAnimPara(segActivos: Double) = max(25.0, min(50.0, 0.4 * segActivos / 60.0))
+    private fun durAnimPara(segActivos: Double) = max(25.0, min(48.0, 0.4 * segActivos / 60.0))
     private val SPD = intArrayOf(Color.WHITE, Color.rgb(0, 216, 74), Color.rgb(255, 212, 0), Color.rgb(255, 45, 45))
     private fun bk(v: Double) = if (v < 4) 0 else if (v < 7) 1 else if (v < 12) 2 else 3
 
@@ -163,9 +164,11 @@ object Video {
                 c.drawLine(x0, y0, x1 + dx * 22 * u, y1 + dy * 22 * u, pVto)
                 if (pasada == 0) { pVto.strokeWidth = 5 * u; c.drawPath(punta, pVto) } else { pVto.style = Paint.Style.FILL; c.drawPath(punta, pVto) }
             }
-            pBrT.textSize = 22 * u; val ty = cy + r + 40 * u; val txt = "Viento " + vientoDesde.toInt() + "°"
-            pBrT.style = Paint.Style.STROKE; pBrT.strokeWidth = 5 * u; pBrT.color = sombra; c.drawText(txt, cx, ty, pBrT)
-            pBrT.style = Paint.Style.FILL; pBrT.color = AMBAR; c.drawText(txt, cx, ty, pBrT)
+            // el ángulo del viento en la base (cola) de la flecha
+            pBrT.textSize = 22 * u; val txt = vientoDesde.toInt().toString() + "°"
+            val bx = cx + dx * (r + 52 * u); val by = cy + dy * (r + 52 * u) + 8 * u
+            pBrT.style = Paint.Style.STROKE; pBrT.strokeWidth = 5 * u; pBrT.color = sombra; c.drawText(txt, bx, by, pBrT)
+            pBrT.style = Paint.Style.FILL; pBrT.color = AMBAR; c.drawText(txt, bx, by, pBrT)
         }
     }
 
@@ -230,7 +233,7 @@ object Video {
         for (i in 1 until n) if (sg[i] == sg[i - 1]) { val vm = (v[i] + v[i - 1]) / 2; if (vm > vUmbral) { val dt = t[i] - t[i - 1]; tPlan += dt; tvPlan += dt * vm } }
         val vPlaneo = if (tPlan > 0) tvPlan / tPlan else 0.0
         val DUR_ANIM = durAnimPara(totAct)
-        val DUR_TOTAL = T_INTRO + DUR_ANIM + T_OUTRO
+        val DUR_TOTAL = T_INTRO + DUR_ANIM + T_OUTRO + T_QUIETO
 
         // ---------- encuadre: lo más cerca posible, pero que el cursor no cruce la pantalla en menos de ~1 s de video
         var latMin = lat.min(); var latMax = lat.max(); var lonMin = lon.min(); var lonMax = lon.max()
@@ -494,7 +497,20 @@ object Video {
                     c.drawText(l2, mg + 32 * u, top + (if (l1 != null) 228 else 166) * u, pPlan)
                 }
                 }
-                brujula(c, W - 70 * u - 86 * u, (if (vertical) 150 * u else 70 * u) + 86 * u, 86 * u, angN, vientoDir, u)
+                // la rosa no se muestra durante los paneos de 360°: aparece al estabilizarse la cámara (recorrido) y en la imagen quieta final
+                val tQuieto = tFin + T_OUTRO
+                val aRosa = when {
+                    tv < T_INTRO -> suave((tv - (T_INTRO - 0.4)) / 0.4)
+                    tv < tFin -> 1.0
+                    tv < tQuieto -> max(1.0 - suave((tv - tFin) / 0.4), suave((tv - (tQuieto - 0.3)) / 0.5))
+                    else -> suave((tv - (tQuieto - 0.3)) / 0.5)
+                }
+                if (aRosa > 0.01) {
+                    val cxR = W - 100 * u - 86 * u; val cyR = (if (vertical) 170 * u else 100 * u) + 86 * u
+                    val capa = c.saveLayerAlpha(cxR - 240 * u, cyR - 240 * u, cxR + 240 * u, cyR + 240 * u, (255 * aRosa).toInt())
+                    brujula(c, cxR, cyR, 86 * u, angN, vientoDir, u)
+                    c.restoreToCount(capa)
+                }
             } finally { surf.unlockCanvasAndPost(c) }
             drenar(false)
             if (f % 30 == 0) msg("Generando video… ${100 * f / total}%")
