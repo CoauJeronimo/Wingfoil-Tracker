@@ -219,6 +219,30 @@ for i in events:
     if ty in (None, 'pequeno', 'complejo'): continue
     cand.append({'tipo': ty, 't': t[i], 'lat': lat[i], 'lon': lon[i]})
 
+# 5b) LAZOS: giro de 300° o más en 25 s o menos (p. ej. virada + trasluchada seguidas, una vuelta completa).
+#     El rumbo de antes y el de después son casi iguales, así que el paso 4 no lo ve: acá se busca en el rumbo
+#     desenrollado y se cuenta una maniobra por cada eje que cruza (proa al viento = virada, popa = trasluchada).
+lazos = []
+_k = 0
+while _k < len(iv):
+    i0 = iv[_k]; sg0 = seg[i0]
+    U = [(i0, cog[i0])]; enc = None
+    for q in iv[_k+1:]:
+        if seg[q] != sg0 or t[q] - t[i0] > 25: break
+        U.append((q, U[-1][1] + ((cog[q]-cog[U[-1][0]]) + 180) % 360 - 180))
+        if abs(U[-1][1] - U[0][1]) >= 300: enc = U; break
+    if enc is None: _k += 1; continue
+    ev = []
+    for (a, ua), (b, ub) in zip(enc, enc[1:]):
+        for ax, ty in ((WIND_FROM, 'Virada'), (DOWNWIND, 'Trasluchada')):
+            if math.floor((ua-ax)/360) != math.floor((ub-ax)/360):
+                ev.append({'tipo': ty, 't': t[b], 'lat': lat[b], 'lon': lon[b], 'lazo': True})
+    vl = sorted(v[q] for q in range(enc[0][0], enc[-1][0]+1) if seg[q] == sg0)
+    if ev and vl and vl[len(vl)//2] >= V_ENT_MIN:      # navegando (no girando en el lugar después de una caída)
+        lazos.append((t[enc[0][0]], t[enc[-1][0]], ev))
+    _k = iv.index(enc[-1][0]) + 1
+if lazos: print(f"Lazos (vuelta de 300° o más): {len(lazos)} -> " + ', '.join('+'.join(e['tipo'] for e in ev) for a, b, ev in lazos))
+
 # 6) EVENTOS CON PARADA (v < 2.5 kn >= 4 s): tipo por rumbo 30 m antes/después (camino angular más corto, solo aquí)
 def contains(hb, diff, tg):
     rel = (tg-hb) % 360
@@ -254,6 +278,9 @@ dd = []
 for m in allm:
     if dd and abs(m['t']-dd[-1]['t']) < 15: continue
     dd.append(m)
+for a, b, ev in lazos:                 # cada lazo reemplaza lo que se haya detectado en su lapso
+    dd = [m for m in dd if not (a - 5 <= m['t'] <= b + 5)] + ev
+dd.sort(key=lambda m: m['t'])
 SG = 0
 def avg(a, b):
     vals = [v[i] for i in range(n) if a <= cd[i] <= b and seg[i] == SG]
@@ -332,16 +359,22 @@ for m in dd:
     if h_in is None: h_in = avgh(t[i]-18, t[i]-3, seg[i])
     m['amura'] = None if h_in is None else ('estribor' if 0 < (WIND_FROM - h_in) % 360 < 180 else 'babor')
     g_ = geom(i, vi); m.update(g_)
-    # Corte de señal al salir: si antes del corte ya habías terminado el giro (pasaste al otro lado del eje,
-    # a 30° o más de él) sin bajar de la velocidad mínima de entrada, el giro salió bien: la caída, si la hubo, fue después.
+    # Corte de señal al salir: si antes del corte ya navegabas del otro lado del eje (a 30° o más de él) y otra vez
+    # en planeo (7 kn o más), sin haber bajado de 4 kn en el giro, el giro salió bien: la caída, si la hubo, fue
+    # después (por ejemplo en la maniobra siguiente).
     giro_ok = False
     if cayo_agua and m.get('amura'):
         ql = max(q for q in range(i, n) if seg[q] == SG)
-        if cog[ql] is not None and t[ql] - t[i] >= 2:
-            lado_sal = 'estribor' if 0 < (WIND_FROM - cog[ql]) % 360 < 180 else 'babor'
-            tw_ = twa(cog[ql]); lejos_eje = tw_ >= 30 if m['tipo'] == 'Virada' else tw_ <= 150
-            vmin_ = min(v[q] for q in range(bisect.bisect_left(t, t[i] - 3), ql + 1) if seg[q] == SG)
-            giro_ok = lado_sal != m['amura'] and lejos_eje and vmin_ >= V_ENT_MIN
+        vmin_ = v[i]
+        for q in range(bisect.bisect_left(t, t[i] - 3), ql + 1):
+            if seg[q] != SG: continue
+            vmin_ = min(vmin_, v[q])
+            if vmin_ < 4: break
+            if q <= i or cog[q] is None or v[q] < 7: continue
+            lado_sal = 'estribor' if 0 < (WIND_FROM - cog[q]) % 360 < 180 else 'babor'
+            tw_ = twa(cog[q])
+            if lado_sal != m['amura'] and (tw_ >= 30 if m['tipo'] == 'Virada' else tw_ <= 150):
+                giro_ok = True; break
     if giro_ok: cayo_agua = False
     if WS:
         # windsurf: en la virada es normal quedar casi parado; se considera caída quedarse < 1,5 kn 12 s o más
