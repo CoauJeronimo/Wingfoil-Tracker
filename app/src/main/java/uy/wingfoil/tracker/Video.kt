@@ -28,6 +28,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.floor
@@ -115,6 +116,29 @@ object Video {
         val nn = 256.0 * (1 shl z)
         val la = max(-85.0, min(85.0, lat)) * PI / 180
         return doubleArrayOf((lon + 180) / 360 * nn, (1 - ln(tan(la) + 1 / cos(la)) / PI) / 2 * nn)
+    }
+
+    private val pBrF = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 0, 0, 0) }
+    private val pBrA = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE }
+    private val pBrN = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(230, 40, 40) }
+    private val pBrS = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val pBrT = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+
+    /** Brújula: círculo con aguja roja hacia el norte (N) y blanca hacia el sur (S); ang = dirección del norte en pantalla (rad). */
+    private fun brujula(c: Canvas, cx: Float, cy: Float, r: Float, ang: Double, u: Float) {
+        c.drawCircle(cx, cy, r, pBrF)
+        pBrA.strokeWidth = 3 * u; c.drawCircle(cx, cy, r - 4 * u, pBrA)
+        val dx = cos(ang).toFloat(); val dy = Math.sin(ang).toFloat()        // hacia el norte
+        val px = -dy; val py = dx                                            // perpendicular
+        val L = r * 0.62f; val A = r * 0.17f
+        val pN = android.graphics.Path().apply { moveTo(cx + dx * L, cy + dy * L); lineTo(cx + px * A, cy + py * A); lineTo(cx - px * A, cy - py * A); close() }
+        val pS = android.graphics.Path().apply { moveTo(cx - dx * L, cy - dy * L); lineTo(cx + px * A, cy + py * A); lineTo(cx - px * A, cy - py * A); close() }
+        c.drawPath(pS, pBrS); c.drawPath(pN, pBrN)
+        c.drawCircle(cx, cy, 5 * u, pBrF)
+        pBrT.textSize = 26 * u
+        val rt = r * 0.84f
+        pBrT.color = Color.rgb(255, 80, 80); c.drawText("N", cx + dx * rt, cy + dy * rt + 9 * u, pBrT)
+        pBrT.color = Color.WHITE; c.drawText("S", cx - dx * rt, cy - dy * rt + 9 * u, pBrT)
     }
 
     private fun render(act: Activity, dir: File, vertical: Boolean, msg: (String) -> Unit): Uri {
@@ -399,6 +423,10 @@ object Video {
                 val rot = Math.toRadians(-th)
                 val wx = (cx - camX) * e; val wy = (cy - camY) * e
                 pt[0] = (wx * cos(rot) - wy * Math.sin(rot)).toFloat(); pt[1] = (wx * Math.sin(rot) + wy * cos(rot)).toFloat()
+                // brújula: dirección del norte en pantalla (norte del mapa = -y, rotado y pasado por la perspectiva)
+                val nb = floatArrayOf(pt[0], pt[1], pt[0] + (Math.sin(rot) * 200 * u).toFloat(), pt[1] - (cos(rot) * 200 * u).toFloat())
+                persp.mapPoints(nb)
+                val angN = atan2((nb[3] - nb[1]).toDouble(), (nb[2] - nb[0]).toDouble())
                 persp.mapPoints(pt)
                 val alto = 34 * u
                 c.drawLine(pt[0], pt[1], pt[0], pt[1] - alto, pPalo)
@@ -432,6 +460,7 @@ object Video {
                     c.drawText(l2, mg + 32 * u, top + (if (l1 != null) 228 else 166) * u, pPlan)
                 }
                 }
+                brujula(c, W - 40 * u - 78 * u, (if (vertical) 120 * u else 40 * u) + 78 * u, 78 * u, angN, u)
             } finally { surf.unlockCanvasAndPost(c) }
             drenar(false)
             if (f % 30 == 0) msg("Generando video… ${100 * f / total}%")
