@@ -131,34 +131,44 @@ object Video {
      * angN = dirección del norte en pantalla (rad, y hacia abajo); vientoDesde en grados (null = sin dato).
      */
     private fun brujula(c: Canvas, cx: Float, cy: Float, r: Float, angN: Double, vientoDesde: Double?, u: Float) {
-        c.drawCircle(cx, cy, r, pBrF)
+        // rosa sencilla, sin fondo: dos líneas (norte-sur y este-oeste), las letras y la flecha del viento.
+        // Todo con un borde oscuro para que se lea sobre el mar o la arena.
         fun dir(grados: Double) = angN + Math.toRadians(grados)          // rumbo (horario desde el norte) -> ángulo en pantalla
-        // rosa sencilla: solo dos líneas (norte-sur y este-oeste) y las letras
-        pBrA.strokeWidth = 3 * u; pBrA.strokeCap = Paint.Cap.ROUND
-        for (g in listOf(0.0, 90.0)) {
+        val sombra = Color.argb(170, 0, 0, 0)
+        pBrA.strokeCap = Paint.Cap.ROUND
+        for (pasada in 0..1) for (g in listOf(0.0, 90.0)) {
             val a = dir(g); val dx = cos(a).toFloat() * r * 0.62f; val dy = Math.sin(a).toFloat() * r * 0.62f
-            pBrA.color = Color.WHITE; c.drawLine(cx - dx, cy - dy, cx, cy, pBrA)
-            pBrA.color = if (g == 0.0) Color.rgb(255, 80, 80) else Color.WHITE; c.drawLine(cx, cy, cx + dx, cy + dy, pBrA)
+            pBrA.strokeWidth = if (pasada == 0) 8 * u else 3.5f * u
+            pBrA.color = if (pasada == 0) sombra else Color.WHITE; c.drawLine(cx - dx, cy - dy, cx, cy, pBrA)
+            pBrA.color = if (pasada == 0) sombra else if (g == 0.0) Color.rgb(255, 80, 80) else Color.WHITE; c.drawLine(cx, cy, cx + dx, cy + dy, pBrA)
         }
-        pBrT.textSize = 22 * u
+        pBrT.textSize = 24 * u
         for ((g, l) in listOf(0.0 to "N", 90.0 to "E", 180.0 to "S", 270.0 to "O")) {
-            val a = dir(g); val rt = r * 0.84f
-            pBrT.color = if (l == "N") Color.rgb(255, 90, 90) else Color.WHITE
-            c.drawText(l, cx + cos(a).toFloat() * rt, cy + Math.sin(a).toFloat() * rt + 8 * u, pBrT)
+            val a = dir(g); val rt = r * 0.86f
+            val x = cx + cos(a).toFloat() * rt; val y = cy + Math.sin(a).toFloat() * rt + 8.5f * u
+            pBrT.style = Paint.Style.STROKE; pBrT.strokeWidth = 5 * u; pBrT.color = sombra; c.drawText(l, x, y, pBrT)
+            pBrT.style = Paint.Style.FILL; pBrT.color = if (l == "N") Color.rgb(255, 90, 90) else Color.WHITE; c.drawText(l, x, y, pBrT)
         }
         if (vientoDesde != null) {
-            // flecha del viento: entra desde el borde (de donde viene) hacia el centro
+            // flecha del viento: entra desde afuera (de donde viene) hacia el centro
             val a = dir(vientoDesde); val dx = cos(a).toFloat(); val dy = Math.sin(a).toFloat(); val px = -dy; val py = dx
             val x0 = cx + dx * (r + 26 * u); val y0 = cy + dy * (r + 26 * u)
             val x1 = cx + dx * r * 0.22f; val y1 = cy + dy * r * 0.22f
-            pVto.strokeWidth = 7 * u; c.drawLine(x0, y0, x1 + dx * 22 * u, y1 + dy * 22 * u, pVto)
-            pVto.style = Paint.Style.FILL
-            c.drawPath(android.graphics.Path().apply { moveTo(x1, y1); lineTo(x1 + dx * 30 * u + px * 16 * u, y1 + dy * 30 * u + py * 16 * u)
-                lineTo(x1 + dx * 30 * u - px * 16 * u, y1 + dy * 30 * u - py * 16 * u); close() }, pVto)
-            pBrT.textSize = 22 * u; pBrT.color = AMBAR
-            c.drawText("Viento " + vientoDesde.toInt() + "°", cx, cy + r + 34 * u, pBrT)
+            val punta = android.graphics.Path().apply { moveTo(x1, y1); lineTo(x1 + dx * 30 * u + px * 16 * u, y1 + dy * 30 * u + py * 16 * u)
+                lineTo(x1 + dx * 30 * u - px * 16 * u, y1 + dy * 30 * u - py * 16 * u); close() }
+            for (pasada in 0..1) {
+                pVto.color = if (pasada == 0) sombra else AMBAR
+                pVto.style = Paint.Style.STROKE; pVto.strokeJoin = Paint.Join.ROUND
+                pVto.strokeWidth = if (pasada == 0) 12 * u else 7 * u
+                c.drawLine(x0, y0, x1 + dx * 22 * u, y1 + dy * 22 * u, pVto)
+                if (pasada == 0) { pVto.strokeWidth = 5 * u; c.drawPath(punta, pVto) } else { pVto.style = Paint.Style.FILL; c.drawPath(punta, pVto) }
+            }
+            pBrT.textSize = 22 * u; val ty = cy + r + 40 * u; val txt = "Viento " + vientoDesde.toInt() + "°"
+            pBrT.style = Paint.Style.STROKE; pBrT.strokeWidth = 5 * u; pBrT.color = sombra; c.drawText(txt, cx, ty, pBrT)
+            pBrT.style = Paint.Style.FILL; pBrT.color = AMBAR; c.drawText(txt, cx, ty, pBrT)
         }
     }
+
 
     private fun render(act: Activity, dir: File, vertical: Boolean, msg: (String) -> Unit): Uri {
         // ---------- datos: misma limpieza que el análisis; se saltean los tramos excluidos del último análisis
