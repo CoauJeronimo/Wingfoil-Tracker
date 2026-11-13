@@ -132,19 +132,14 @@ object Video {
      */
     private fun brujula(c: Canvas, cx: Float, cy: Float, r: Float, angN: Double, vientoDesde: Double?, u: Float) {
         c.drawCircle(cx, cy, r, pBrF)
-        pBrA.strokeWidth = 2.5f * u; pBrA.color = Color.argb(170, 255, 255, 255); c.drawCircle(cx, cy, r - 4 * u, pBrA)
         fun dir(grados: Double) = angN + Math.toRadians(grados)          // rumbo (horario desde el norte) -> ángulo en pantalla
-        fun punta(grados: Double, largo: Float, ancho: Float, col1: Int, col2: Int) {
-            val a = dir(grados); val dx = cos(a).toFloat(); val dy = Math.sin(a).toFloat(); val px = -dy; val py = dx
-            val tipX = cx + dx * largo; val tipY = cy + dy * largo
-            // cada punta en dos mitades (clara y oscura) para que se vea como estrella
-            pBrP.color = col1; c.drawPath(android.graphics.Path().apply { moveTo(tipX, tipY); lineTo(cx + px * ancho, cy + py * ancho); lineTo(cx, cy); close() }, pBrP)
-            pBrP.color = col2; c.drawPath(android.graphics.Path().apply { moveTo(tipX, tipY); lineTo(cx - px * ancho, cy - py * ancho); lineTo(cx, cy); close() }, pBrP)
+        // rosa sencilla: solo dos líneas (norte-sur y este-oeste) y las letras
+        pBrA.strokeWidth = 3 * u; pBrA.strokeCap = Paint.Cap.ROUND
+        for (g in listOf(0.0, 90.0)) {
+            val a = dir(g); val dx = cos(a).toFloat() * r * 0.62f; val dy = Math.sin(a).toFloat() * r * 0.62f
+            pBrA.color = Color.WHITE; c.drawLine(cx - dx, cy - dy, cx, cy, pBrA)
+            pBrA.color = if (g == 0.0) Color.rgb(255, 80, 80) else Color.WHITE; c.drawLine(cx, cy, cx + dx, cy + dy, pBrA)
         }
-        val gris = Color.rgb(170, 178, 190); val blanco = Color.WHITE
-        for (g in listOf(45.0, 135.0, 225.0, 315.0)) punta(g, r * 0.48f, r * 0.11f, gris, Color.rgb(110, 118, 130))
-        punta(90.0, r * 0.66f, r * 0.15f, blanco, gris); punta(180.0, r * 0.66f, r * 0.15f, blanco, gris); punta(270.0, r * 0.66f, r * 0.15f, blanco, gris)
-        punta(0.0, r * 0.70f, r * 0.15f, Color.rgb(255, 70, 70), Color.rgb(190, 20, 20))
         pBrT.textSize = 22 * u
         for ((g, l) in listOf(0.0 to "N", 90.0 to "E", 180.0 to "S", 270.0 to "O")) {
             val a = dir(g); val rt = r * 0.84f
