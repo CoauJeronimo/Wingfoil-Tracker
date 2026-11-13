@@ -120,25 +120,49 @@ object Video {
 
     private val pBrF = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 0, 0, 0) }
     private val pBrA = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE }
-    private val pBrN = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(230, 40, 40) }
-    private val pBrS = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val pBrP = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pBrT = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+    private val pVto = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 196, 0); strokeCap = Paint.Cap.ROUND }
+    private val AMBAR = Color.rgb(255, 196, 0)
 
-    /** Brújula: círculo con aguja roja hacia el norte (N) y blanca hacia el sur (S); ang = dirección del norte en pantalla (rad). */
-    private fun brujula(c: Canvas, cx: Float, cy: Float, r: Float, ang: Double, u: Float) {
+    /**
+     * Rosa de los vientos (estrella de 8 puntas) que gira con el mapa: N en rojo, E, S y O en blanco.
+     * Si la sesión está analizada, una flecha ámbar desde el borde hacia el centro marca DE DÓNDE viene el viento.
+     * angN = dirección del norte en pantalla (rad, y hacia abajo); vientoDesde en grados (null = sin dato).
+     */
+    private fun brujula(c: Canvas, cx: Float, cy: Float, r: Float, angN: Double, vientoDesde: Double?, u: Float) {
         c.drawCircle(cx, cy, r, pBrF)
-        pBrA.strokeWidth = 3 * u; c.drawCircle(cx, cy, r - 4 * u, pBrA)
-        val dx = cos(ang).toFloat(); val dy = Math.sin(ang).toFloat()        // hacia el norte
-        val px = -dy; val py = dx                                            // perpendicular
-        val L = r * 0.62f; val A = r * 0.17f
-        val pN = android.graphics.Path().apply { moveTo(cx + dx * L, cy + dy * L); lineTo(cx + px * A, cy + py * A); lineTo(cx - px * A, cy - py * A); close() }
-        val pS = android.graphics.Path().apply { moveTo(cx - dx * L, cy - dy * L); lineTo(cx + px * A, cy + py * A); lineTo(cx - px * A, cy - py * A); close() }
-        c.drawPath(pS, pBrS); c.drawPath(pN, pBrN)
-        c.drawCircle(cx, cy, 5 * u, pBrF)
-        pBrT.textSize = 26 * u
-        val rt = r * 0.84f
-        pBrT.color = Color.rgb(255, 80, 80); c.drawText("N", cx + dx * rt, cy + dy * rt + 9 * u, pBrT)
-        pBrT.color = Color.WHITE; c.drawText("S", cx - dx * rt, cy - dy * rt + 9 * u, pBrT)
+        pBrA.strokeWidth = 2.5f * u; pBrA.color = Color.argb(170, 255, 255, 255); c.drawCircle(cx, cy, r - 4 * u, pBrA)
+        fun dir(grados: Double) = angN + Math.toRadians(grados)          // rumbo (horario desde el norte) -> ángulo en pantalla
+        fun punta(grados: Double, largo: Float, ancho: Float, col1: Int, col2: Int) {
+            val a = dir(grados); val dx = cos(a).toFloat(); val dy = Math.sin(a).toFloat(); val px = -dy; val py = dx
+            val tipX = cx + dx * largo; val tipY = cy + dy * largo
+            // cada punta en dos mitades (clara y oscura) para que se vea como estrella
+            pBrP.color = col1; c.drawPath(android.graphics.Path().apply { moveTo(tipX, tipY); lineTo(cx + px * ancho, cy + py * ancho); lineTo(cx, cy); close() }, pBrP)
+            pBrP.color = col2; c.drawPath(android.graphics.Path().apply { moveTo(tipX, tipY); lineTo(cx - px * ancho, cy - py * ancho); lineTo(cx, cy); close() }, pBrP)
+        }
+        val gris = Color.rgb(170, 178, 190); val blanco = Color.WHITE
+        for (g in listOf(45.0, 135.0, 225.0, 315.0)) punta(g, r * 0.48f, r * 0.11f, gris, Color.rgb(110, 118, 130))
+        punta(90.0, r * 0.66f, r * 0.15f, blanco, gris); punta(180.0, r * 0.66f, r * 0.15f, blanco, gris); punta(270.0, r * 0.66f, r * 0.15f, blanco, gris)
+        punta(0.0, r * 0.70f, r * 0.15f, Color.rgb(255, 70, 70), Color.rgb(190, 20, 20))
+        pBrT.textSize = 22 * u
+        for ((g, l) in listOf(0.0 to "N", 90.0 to "E", 180.0 to "S", 270.0 to "O")) {
+            val a = dir(g); val rt = r * 0.84f
+            pBrT.color = if (l == "N") Color.rgb(255, 90, 90) else Color.WHITE
+            c.drawText(l, cx + cos(a).toFloat() * rt, cy + Math.sin(a).toFloat() * rt + 8 * u, pBrT)
+        }
+        if (vientoDesde != null) {
+            // flecha del viento: entra desde el borde (de donde viene) hacia el centro
+            val a = dir(vientoDesde); val dx = cos(a).toFloat(); val dy = Math.sin(a).toFloat(); val px = -dy; val py = dx
+            val x0 = cx + dx * (r + 26 * u); val y0 = cy + dy * (r + 26 * u)
+            val x1 = cx + dx * r * 0.22f; val y1 = cy + dy * r * 0.22f
+            pVto.strokeWidth = 7 * u; c.drawLine(x0, y0, x1 + dx * 22 * u, y1 + dy * 22 * u, pVto)
+            pVto.style = Paint.Style.FILL
+            c.drawPath(android.graphics.Path().apply { moveTo(x1, y1); lineTo(x1 + dx * 30 * u + px * 16 * u, y1 + dy * 30 * u + py * 16 * u)
+                lineTo(x1 + dx * 30 * u - px * 16 * u, y1 + dy * 30 * u - py * 16 * u); close() }, pVto)
+            pBrT.textSize = 22 * u; pBrT.color = AMBAR
+            c.drawText("Viento " + vientoDesde.toInt() + "°", cx, cy + r + 34 * u, pBrT)
+        }
     }
 
     private fun render(act: Activity, dir: File, vertical: Boolean, msg: (String) -> Unit): Uri {
@@ -191,6 +215,11 @@ object Video {
         // velocidad media de navegación en planeo (> 7 kn), igual que el análisis
         // windsurf: el planeo no importa; al final va la velocidad media navegando (> 4 kn)
         val windsurf = SessionInfo.get(dir, "disciplina") == "windsurf"
+        // dirección del viento (de donde viene) del último análisis de la sesión, para la flecha de la brújula
+        val vientoDir: Double? = try {
+            val fj = File(dir, "analisis/resultados.json")
+            if (fj.exists()) JSONObject(fj.readText()).optDouble("viento", Double.NaN).takeIf { !it.isNaN() } else null
+        } catch (_: Exception) { null }
         val vUmbral = if (windsurf) 4.0 else 7.0
         var tPlan = 0.0; var tvPlan = 0.0
         for (i in 1 until n) if (sg[i] == sg[i - 1]) { val vm = (v[i] + v[i - 1]) / 2; if (vm > vUmbral) { val dt = t[i] - t[i - 1]; tPlan += dt; tvPlan += dt * vm } }
@@ -460,7 +489,7 @@ object Video {
                     c.drawText(l2, mg + 32 * u, top + (if (l1 != null) 228 else 166) * u, pPlan)
                 }
                 }
-                brujula(c, W - 40 * u - 78 * u, (if (vertical) 120 * u else 40 * u) + 78 * u, 78 * u, angN, u)
+                brujula(c, W - 70 * u - 86 * u, (if (vertical) 150 * u else 70 * u) + 86 * u, 86 * u, angN, vientoDir, u)
             } finally { surf.unlockCanvasAndPost(c) }
             drenar(false)
             if (f % 30 == 0) msg("Generando video… ${100 * f / total}%")
