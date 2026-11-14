@@ -466,6 +466,34 @@ for ty_ in ('Trasluchada', 'Virada'):
     print(f"{ty_}s completas ({len(L_)}): entrada media {sum(vi_)/len(vi_):.2f} kn | salida media {sum(vo_)/len(vo_):.2f} kn | variación media {sum(va_)/len(va_)*100:+.1f}%")
 M = fin
 
+# 7a) TRAMO MÁS LARGO SIN CAÍDAS: se corta en cada caída real (4 s o más a 3 kn o menos) y en cada corte de señal;
+#     las bajas cortas de velocidad no lo cortan. Va desde el primer hasta el último punto a más de 7 kn (4 en windsurf).
+def _tramo_largo():
+    runs = []; cur = []; q = 0
+    while q < n:
+        if cur and seg[q] != seg[cur[-1]]: runs.append(cur); cur = []
+        if v[q] <= 3:
+            k = q
+            while k + 1 < n and seg[k+1] == seg[q] and v[k+1] <= 3: k += 1
+            if t[k] - t[q] >= 4 or k == n - 1:
+                if cur: runs.append(cur)
+                cur = []; q = k + 1; continue
+        cur.append(q); q += 1
+    if cur: runs.append(cur)
+    best = None
+    for R_ in runs:
+        rap = [k for k in R_ if v[k] > V_NAV]
+        if not rap: continue
+        a, b = rap[0], rap[-1]
+        if best is None or t[b] - t[a] > t[best[1]] - t[best[0]]: best = (a, b)
+    if best is None: return None
+    a, b = best
+    return {'ini': t[a], 'fin': t[b], 'dur_s': t[b] - t[a], 'dist_km': (cd[b] - cd[a]) / 1000,
+            'trasluchadas': sum(1 for m in M if m['tipo'] == 'Trasluchada' and m['resultado'] == 'Completa' and t[a] <= m['t'] <= t[b]),
+            'viradas': sum(1 for m in M if m['tipo'] == 'Virada' and m['resultado'] == 'Completa' and t[a] <= m['t'] <= t[b])}
+TRAMO = _tramo_largo()
+if TRAMO: print(f"Tramo más largo sin caídas: {TRAMO['dur_s']/60:.1f} min, {TRAMO['dist_km']:.2f} km, {TRAMO['trasluchadas']} trasluchadas, {TRAMO['viradas']} viradas")
+
 # 7b) NAVEGACIÓN ENTRE MANIOBRAS: rumbos respecto al viento, ángulo de ceñida y de largo por amura, VMG.
 #     Se usan los puntos con rumbo y velocidad >= V_NAV (wingfoil 7 kn = en planeo; windsurf 4 kn = navegando),
 #     fuera de los 12 s alrededor de cada maniobra y de cada parada.
@@ -729,8 +757,10 @@ def _mdx(ty_, k, nd):
     xs = sorted(m[k] for m in M if m['tipo'] == ty_ and m['resultado'] == 'Completa' and m.get(k) is not None)
     if not xs: return 's/d'
     q = len(xs)//2; return round(xs[q] if len(xs) % 2 else (xs[q-1]+xs[q])/2, nd)
+def _mmss(s_): return f"{int(s_ // 60)}:{int(round(s_ % 60)):02d}"
 rows = [*([('Nombre de la sesión', A.nombre, None)] if A.nombre else []),
         ('Disciplina', DISC, None),
+        *([] if not TRAMO else [('Tramo más largo sin caídas', f"{_mmss(TRAMO['dur_s'])} min · " + f"{TRAMO['dist_km']:.2f}".replace('.', ',') + f" km · {TRAMO['trasluchadas']} trasluchadas · {TRAMO['viradas']} viradas", None)]),
         *([('Lugar', A.lugar, None)] if A.lugar else []),
         *([('Intensidad del viento (kn)', A.viento_kn, '0.0')] if A.viento_kn is not None else []),
         *([('Comentario', A.comentario, None)] if A.comentario else []),
@@ -864,6 +894,7 @@ if A.json:
     paso = max(1, n // 5000)
     res = {
         'disciplina': A.disciplina, 'v_nav': V_NAV, 'v_ent_min': V_ENT_MIN,
+        'tramo_largo': (None if not TRAMO else {**TRAMO, 'ini': hora(TRAMO['ini']), 'fin': hora(TRAMO['fin'])}),
         'nav_min': nav4/60, 'vel_media_nav': navv4,
         'rumbos': rumbos, 'angulos': angulos, 'nav_medida_min': TNAV/60,
         'vmg_up': VMGU, 'vmg_up_hora': hora(VMGU_T) if VMGU_T is not None else None,

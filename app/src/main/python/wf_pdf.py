@@ -597,11 +597,14 @@ def informe(R, path, sat=True, fetch=None):
     if R['excluidos']:
         p.text(M, 68, "Tramos excluidos: " + ", ".join(f"{a}–{b}" for a, b in R['excluidos']), 8, False, '#BFD7EA')
     T, V = R['por_tipo']['Trasluchada'], R['por_tipo']['Virada']
-    tiles = [("Distancia total", _n(R['distancia_km'], 2, ' km'), ''),
-             ("Tiempo total de sesión", _n(R['tiempo_min'], 1, ' min'), ''),
+    TL = R.get('tramo_largo')
+    tiles = [*([("Tramo más largo sin caídas", f"{int(TL['dur_s'] // 60)}:{int(round(TL['dur_s'] % 60)):02d} min · {_n(TL['dist_km'], 2, ' km')}",
+                 f"{TL['trasluchadas']} trasluchadas · {TL['viradas']} viradas", 2)] if TL else []),
+             ("Distancia total", _n(R['distancia_km'], 2, ' km'), ''),
+             ("Tiempo total", _n(R['tiempo_min'], 1, ' min'), ''),
              *([("Tiempo navegando (>4 kn)", _n(R.get('nav_min'), 1, ' min'), f"{_pct((R.get('nav_min') or 0) / R['tiempo_min'] if R['tiempo_min'] else None)} del tiempo"),
                 ("Vel. media navegando", _n(R.get('vel_media_nav'), 2, ' kn'), '')] if WS else
-               [("Tiempo de planeo (>7 kn)", _n(R['planeo_min'], 1, ' min'), f"{_pct(R['planeo_pct'])} del tiempo"),
+               [("Planeo (>7 kn)", _n(R['planeo_min'], 1, ' min'), f"{_pct(R['planeo_pct'])} del tiempo"),
                 ("Vel. media en planeo", _n(R['vel_media_planeo'], 2, ' kn'), '')]),
              ("Vel. máx. en 20 m", _n(R['vmax20'], 2, ' kn'), R['vmax20_hora']),
              ("Trasluchadas", f"{T['completas']} / {T['fallidas']}", f"compl./fall. · éxito {_pct(T['exito'])}"),
@@ -615,18 +618,27 @@ def informe(R, path, sat=True, fetch=None):
         tiles.append(("Salto más alto", _n(top_['altura'], 2, ' m') if top_ else 's/d',
                       f"{top_['hora']} · {top_['resultado'].lower()}" if top_ else "sin saltos"))
     # dos filas; cada fila reparte el ancho en partes iguales; todo centrado
-    n1 = (len(tiles) + 1) // 2; filas_t = [tiles[:n1], tiles[n1:]]
+    # cada recuadro ocupa 1 lugar (el del tramo más largo, 2); las dos filas se reparten los lugares
+    tiles = [x if len(x) == 4 else (*x, 1) for x in tiles]
+    tot_ = sum(x[3] for x in tiles); acc_ = 0; n1 = 0
+    for x in tiles:
+        if acc_ + x[3] > (tot_ + 1) // 2: break
+        acc_ += x[3]; n1 += 1
+    filas_t = [tiles[:n1], tiles[n1:]]
     th = 56
     for fi, fila in enumerate(filas_t):
         if not fila: continue
-        tw = (W - 2*M - (len(fila)-1)*8) / len(fila)
-        for j, (l, v_, sub) in enumerate(fila):
-            cx = M + j*(tw + 8); cy = 92 + fi*(th + 8); mx = cx + tw/2
+        lug = sum(x[3] for x in fila)
+        u_ = (W - 2*M - (lug-1)*8) / lug
+        xx_ = M
+        for j, (l, v_, sub, pe) in enumerate(fila):
+            tw = u_ * pe + 8 * (pe - 1)
+            cx = xx_; xx_ += tw + 8; cy = 92 + fi*(th + 8); mx = cx + tw/2
             p.rect(cx, cy, tw, th, fill=CLARO); p.rect(cx, cy, tw, 3, fill=ACC)
             lab = l.upper(); fsl = 7
             while text_width(lab, fsl, True) > tw - 10 and fsl > 5.6: fsl -= 0.2
             p.text(mx, cy + 16, p.fit(lab, fsl, tw - 8, True), fsl, True, GRIS, 'center')
-            fsv = 16 if len(fila) <= 4 else 15
+            fsv = 16 if lug <= 4 else 15
             p.text(mx, cy + 36, p.fit(v_, fsv, tw - 10, True), fsv, True, NAVY, 'center')
             if sub: p.text(mx, cy + 49, p.fit(sub, 6.8, tw - 8), 6.8, False, GRIS, 'center')
     my = 92 + 2*(th + 8) + 4; mh = H - my - 80
@@ -673,7 +685,9 @@ def informe(R, path, sat=True, fetch=None):
     def _md(x, d, suf): return _n(x, d, suf)
     def _sg(x): return 's/d' if x is None else (f"{x:+.0f} m".replace('+-', '-'))
     ANG = R.get('angulos') or {}
-    filas = ([("Nombre de la sesión", R['nombre'])] if R.get('nombre') else []) + ([("Lugar", R['lugar'])] if R.get('lugar') else []) + \
+    filas = ([("Nombre de la sesión", R['nombre'])] if R.get('nombre') else []) + \
+            ([("Tramo más largo sin caídas", f"{int(R['tramo_largo']['dur_s'] // 60)}:{int(round(R['tramo_largo']['dur_s'] % 60)):02d} min · {_n(R['tramo_largo']['dist_km'], 2, ' km')} · "
+                                             f"{R['tramo_largo']['trasluchadas']} trasluchadas · {R['tramo_largo']['viradas']} viradas ({R['tramo_largo']['ini']}–{R['tramo_largo']['fin']})")] if R.get('tramo_largo') else []) + ([("Lugar", R['lugar'])] if R.get('lugar') else []) + \
             ([("Intensidad del viento", _n(R['viento_kn'], 1, ' kn'))] if R.get('viento_kn') is not None else []) + [("Disciplina", DISC), ("Origen del archivo", R['origen']), ("Dirección del viento (desde)", f"{R['viento']:.0f}°"),
              ("Distancia total recorrida", _n(R['distancia_km'], 2, ' km')), ("Tiempo total del recorrido", _n(R['tiempo_min'], 1, ' min'))] + \
             ([("Tiempo navegando (más de 4 nudos)", _n(R.get('nav_min'), 1, ' min')), ("% del tiempo navegando", _pct((R.get('nav_min') or 0) / R['tiempo_min'] if R['tiempo_min'] else None)),

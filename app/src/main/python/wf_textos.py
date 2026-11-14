@@ -12,6 +12,7 @@ def resumen(ws=False):
         ('Disciplina', 'Wingfoil o windsurf. Cambia cómo se decide si una maniobra salió bien y qué datos se informan.'),
         ('Origen del archivo', 'De dónde salieron los datos: grabados con esta app, con Sensor Logger o importados de un GPX. Los GPX importados pueden tener menos precisión.'),
         ('Dirección del viento', 'Los grados desde DONDE VIENE el viento, como los ingresaste. Todo lo que es virada, trasluchada, ángulos, babor/estribor y VMG depende de este dato: si está mal, esos resultados salen mal.'),
+        ('Tramo más largo sin caídas', 'El tramo más largo que navegaste seguido sin caerte: se corta en cada caída real (4 s o más a 3 kn o menos) o corte de señal, pero no en las bajas cortas de velocidad. Muestra tiempo, distancia y las maniobras que encadenaste. Sirve para ver tu resistencia y consistencia: si crece de sesión en sesión, te estás cayendo menos.'),
         ('Distancia total', 'Los kilómetros recorridos, sin contar los tramos excluidos ni los cortes de señal. Sirve para ver el volumen de la sesión.'),
         ('Tiempo total', 'Desde que empezaste a moverte (4 kn) hasta que dejaste de hacerlo, sin los tramos excluidos ni los cortes de señal. Incluye las paradas y caídas.'),
         ('Tiempo total de planeo', 'Minutos navegando a más de 7 kn, que es cuando el foil está en vuelo. Sirve para ver cuánto de la sesión fue navegación de verdad y cuánto fue estar parado o arrancando.'),
