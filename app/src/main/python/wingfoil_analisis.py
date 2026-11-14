@@ -271,8 +271,51 @@ while i < n:
         i = j
     else: i += 1
 
+# 6b) INTENTOS: caída EN MEDIO del giro (parada o corte de señal antes de terminarlo). No hay rumbo de salida,
+#     así que los pasos anteriores no lo ven. Se mira cómo venía girando en los segundos previos a la caída:
+#     si el rumbo se acercó a la proa al viento (o la cruzó) es una virada fallida; si se acercó a la popa, una
+#     trasluchada fallida.
+def _hprom(ta, tb, sg, vmin_=2):
+    xs = [cog[q] for q in range(bisect.bisect_left(t, ta), bisect.bisect_right(t, tb)) if seg[q] == sg and cog[q] is not None and v[q] >= vmin_]
+    if not xs: return None
+    return math.degrees(math.atan2(sum(math.sin(math.radians(x)) for x in xs), sum(math.cos(math.radians(x)) for x in xs))) % 360
+def twa(h):                            # ángulo al viento: 0° = proa al viento, 90° = través, 180° = popa
+    return abs(((h - WIND_FROM) + 180) % 360 - 180)
+def _lado(hd): return 'estribor' if 0 < (WIND_FROM - hd) % 360 < 180 else 'babor'
+intentos = []
+for q in range(1, n):
+    corte_ = seg[q] != seg[q-1]                         # se corta la señal después de q-1
+    para_ = seg[q] == seg[q-1] and v[q] < 2.5 <= v[q-1]  # empieza una parada en q
+    if not (corte_ or para_): continue
+    if para_:
+        k = q
+        while k < n and seg[k] == seg[q] and v[k] < 2.5: k += 1
+        if k < n and seg[k] == seg[q] and t[k] - t[q] < 4: continue
+    qa = q - 1; sg = seg[qa]; tq = t[qa]
+    hb = _hprom(tq - 15, tq - 6, sg); he = _hprom(tq - 2.5, tq + 4, sg, 1.5)   # incluye los primeros segundos de la caída
+    # a poca velocidad el rumbo suavizado (15 m) se atrasa: se usa también la dirección del desplazamiento de los
+    # primeros segundos de la caída (desde el último punto rápido hasta el último a 1,5 kn o más, si se movió 4 m o más)
+    kz = qa
+    for k in range(qa + 1, n):
+        if seg[k] != sg or t[k] > tq + 4: break
+        if v[k] >= 1.5: kz = k
+    if kz > qa and hb is not None:
+        dx = (lon[kz] - lon[qa]) * math.cos(math.radians(lat[qa])) * 111320.0; dy = (lat[kz] - lat[qa]) * 110574.0
+        if math.hypot(dx, dy) >= 4:
+            hd = math.degrees(math.atan2(dx, dy)) % 360
+            if he is None or abs(((hd - hb) + 180) % 360 - 180) > abs(((he - hb) + 180) % 360 - 180): he = hd
+    vb = [v[k] for k in range(bisect.bisect_left(t, tq - 15), qa + 1) if seg[k] == sg]
+    if hb is None or he is None or not vb or max(vb) < V_ENT_MIN: continue
+    tb_, te_ = twa(hb), twa(he); cruzo = _lado(hb) != _lado(he)
+    if (cruzo and te_ < 90) or (not cruzo and tb_ < 110 and tb_ - te_ >= 35):
+        intentos.append({'tipo': 'Virada', 't': tq, 'lat': lat[qa], 'lon': lon[qa], 'intento': True})
+    elif (cruzo and te_ > 90) or (not cruzo and tb_ > 70 and te_ - tb_ >= 45):
+        intentos.append({'tipo': 'Trasluchada', 't': tq, 'lat': lat[qa], 'lon': lon[qa], 'intento': True})
+
 # 7) UNIÓN, deduplicado (<15 s), velocidades, COMPLETA/FALLIDA, filtro de entrada (wingfoil >= 6 kn, windsurf >= 4 kn)
 allm = [m for m in caidas if m['t']-T0 > 90] + cand
+# un intento cuenta solo si no hay otra maniobra detectada en los 15 s anteriores (si la hay, la caída ya es de esa)
+allm += [m for m in intentos if not any(0 <= m['t'] - x['t'] < 15 or abs(m['t'] - x['t']) < 8 for x in allm)]
 allm.sort(key=lambda m: m['t'])
 dd = []
 for m in allm:
@@ -376,6 +419,7 @@ for m in dd:
             tw_ = twa(cog[q])
             if lado_sal != m['amura'] and (tw_ >= 30 if m['tipo'] == 'Virada' else tw_ <= 150):
                 giro_ok = True; break
+    if m.get('intento'): giro_ok = False
     if giro_ok: cayo_agua = False
     if WS:
         # windsurf: en la virada es normal quedar casi parado; se considera caída quedarse < 1,5 kn 12 s o más
@@ -387,7 +431,8 @@ for m in dd:
     else:
         caida_ = blanco(c0, c0+40)
     toque = None
-    if caida_ and not WS and not cayo_agua:
+    if m.get('intento'): caida_ = True
+    if caida_ and not WS and not cayo_agua and not m.get('intento'):
         # wingfoil: "tocó el agua y siguió". Si después de bajar de 4 kn vuelve a 7 kn en 5 s o menos y se mantiene
         # entre 7 kn y 1,6 veces la velocidad de entrada los 4 s siguientes, no fue una caída: el foil tocó y volvió a volar.
         q = bisect.bisect_left(t, t[i] - 3)
@@ -403,7 +448,7 @@ for m in dd:
                 if len(sig) >= 3 and sum(sig) / len(sig) >= 7 and min(sig) >= 5.5 and max(sig) <= 1.6 * vi:
                     toque = t[q2] - t[q]; caida_ = False
     m.update({'resultado': 'Fallida' if (caida_ or cayo_agua) else 'Completa', 'v_in': vi, 'v_out': vo,
-              'nota': 'corte de señal tras el giro' if cayo_agua else ('señal cortada al salir: giro terminado, la caída fue después' if giro_ok else
+              'nota': 'caída en medio del giro' if m.get('intento') else 'corte de señal tras el giro' if cayo_agua else ('señal cortada al salir: giro terminado, la caída fue después' if giro_ok else
                       ((f'bajó al cruzar el viento y siguió (volvió a 7 kn en {toque:.0f} s)' if m['tipo'] == 'Virada' else f'tocó el agua y siguió (volvió a 7 kn en {toque:.0f} s)') if toque is not None else ''))})
     m['toque'] = toque is not None
     m['planeo'] = (None if WS or m['vmin'] is None else m['vmin'] >= 7)      # wingfoil: no bajó de 7 kn en todo el giro
