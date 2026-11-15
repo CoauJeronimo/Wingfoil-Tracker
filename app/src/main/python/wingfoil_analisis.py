@@ -178,6 +178,32 @@ for i in range(n):
     while j < i and cd[i]-cd[j] > 15: j += 1
     if cd[i]-cd[j] < 4.5: continue
     cog[i] = brg(lat[j], lon[j], lat[i], lon[i])
+# Rumbo poco confiable al volver la señal: si después de un hueco de 3 s o más las posiciones saltan (rumbos que
+# cambian más de 90° de un segundo a otro, o una velocidad que no coincide con la del GPS), en los 5 s siguientes al
+# hueco, y en las ventanas que lo atraviesan, no se usa el rumbo: así un salto del GPS no se confunde con un giro.
+def _salta(i0):                              # ¿las posiciones de los 5 s siguientes a i0 saltan?
+    prev_dir = None
+    for q in range(i0 + 1, n):
+        if t[q] - t[i0] > 5: break
+        dt_ = t[q] - t[q-1]
+        if dt_ <= 0: continue
+        dx_ = (lon[q] - lon[q-1]) * math.cos(math.radians(lat[q])) * 111320.0; dy_ = (lat[q] - lat[q-1]) * 110574.0
+        vp_ = math.hypot(dx_, dy_) / dt_ * 1.94384
+        if abs(vp_ - v[q]) > 5: return True                  # la velocidad de las posiciones no coincide con la del GPS
+        if vp_ > 3:
+            dr_ = math.degrees(math.atan2(dx_, dy_)) % 360
+            if prev_dir is not None and abs(((dr_ - prev_dir) + 180) % 360 - 180) > 90: return True   # rumbo que salta
+            prev_dir = dr_
+    return False
+_huecos = [t[i] for i in range(1, n) if t[i] - t[i-1] >= 3 and _salta(i - 1)]
+if _huecos:
+    j = 0
+    for i in range(n):
+        if cog[i] is None: continue
+        k = bisect.bisect_right(_huecos, t[i]) - 1          # último hueco que terminó en t[i] o antes
+        if k >= 0 and t[i] - _huecos[k] < 5: cog[i] = None; continue
+        while j < i and cd[i]-cd[j] > 15: j += 1             # ventana del rumbo (desde j hasta i)
+        if k >= 0 and _huecos[k] > t[j]: cog[i] = None
 iv = [i for i in range(n) if cog[i] is not None]; tv = [t[i] for i in iv]
 def avgh(a, b, sg):
     pts = [i for i in iv[bisect.bisect_left(tv, a):bisect.bisect_right(tv, b)] if seg[i] == sg]
@@ -196,7 +222,7 @@ events = []; k = 0
 while k < len(flag):
     s = k
     while k+1 < len(flag) and t[flag[k+1][0]] - t[flag[k][0]] < 8: k += 1
-    events.append(max(flag[s:k+1], key=lambda x: x[1])[0]); k += 1
+    events.append([x[0] for x in sorted(flag[s:k+1], key=lambda x: -x[1])]); k += 1   # de mayor a menor cambio
 
 # 5) CLASIFICACIÓN con el camino REAL del rumbo (unwrap continuo, ±18 s). NUNCA "camino más corto".
 def classify(tc, sg, hw=18):
@@ -214,9 +240,13 @@ def classify(tc, sg, hw=18):
     if cg and not ct: return 'Trasluchada'
     return 'complejo'          # no cruza limpiamente ningún eje -> se EXCLUYE del informe
 cand = []
-for i in events:
-    ty = classify(t[i], seg[i])
-    if ty in (None, 'pequeno', 'complejo'): continue
+for grupo in events:
+    # el punto de mayor cambio de rumbo; si con ese no se puede clasificar (p. ej. la ventana toca un salto del GPS),
+    # se prueba con los siguientes del mismo grupo
+    for i in grupo:
+        ty = classify(t[i], seg[i])
+        if ty not in (None, 'pequeno', 'complejo'): break
+    else: continue
     cand.append({'tipo': ty, 't': t[i], 'lat': lat[i], 'lon': lon[i]})
 
 # 5b) LAZOS: giro de 300° o más en 25 s o menos (p. ej. virada + trasluchada seguidas, una vuelta completa).
